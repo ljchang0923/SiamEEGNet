@@ -35,7 +35,7 @@ convert reaction time to Drowsiness Index
     * Predict the delta DI between 2 trials
     * In testing phase, predict the delta DI between baseline and any other trials (DI that remove the baseline) 
 
-## training scheme
+## training scenario
 * Within-subject
 * Cross-subject
 
@@ -44,4 +44,5 @@ convert reaction time to Drowsiness Index
 2. models.py: Model architecture including backbone network and Siamese architecture
 3. utils.py: Some helper fucntion including read config file, loading dataset, and plotting figure
 4. train.py: Model training, validation, and testing functions
-5. main.py: To train and inference
+5. training_scheme.py: For 2 different training scenario(within or cross subject)
+6. main.py: To train and inference
