@@ -147,7 +147,7 @@ def train_cross_subject(cfg):
     low_bound = 0
 
     # dictionary to store gradient
-    drowsy_grad_dict = {}
+    grad_dict = {}
     alert_grad_dict = {}
     all_grad_dict = {}
 
@@ -212,11 +212,11 @@ def train_cross_subject(cfg):
         print('test on: ', cfg['ts_sub'])
         print('Start training...')
 
-        all_grad_acc, alert_grad_acc, drowsy_grad_acc = train_model(model, train_dl, val_dl, device, cfg, thres_alert,thres_drowsy)
+        a_, grad_acc = train_model(model, train_dl, val_dl, device, cfg, thres_alert,thres_drowsy)
 
-        all_grad_dict[cfg['ts_sub']] = all_grad_acc
-        alert_grad_dict[cfg['ts_sub']] = alert_grad_acc
-        drowsy_grad_dict[cfg['ts_sub']] = drowsy_grad_acc
+        all_grad_dict[cfg['ts_sub']] = grad_acc["all"]
+        alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
+        drowsy_grad_dict[cfg['ts_sub']] = grad_acc["drowsy"]
 
         ''' Testing '''
         for idx in range(len(data[sub_list[ts_sub_idx]])):
