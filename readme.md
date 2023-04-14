@@ -14,7 +14,7 @@
 Pre-processing the data using Matlab, and the procedures including
 
 Re-reference
-Band pass filter (2~30)
+Band pass filter (2~30 Hz)
 down sampling (500 to 250 Hz)
 Epoching (3 sec EEG signal prior to deviation onset)
 convert reaction time to Drowsiness Index

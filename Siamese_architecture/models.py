@@ -173,7 +173,6 @@ class SCC_multi_window(nn.Module):
         self.sm_num = num_smooth
 
         self.GAP = nn.AvgPool2d((1,self.sm_num))
-        # self.attention = self_attention(20, 2)
         self.regressor = predictor(self.dim_latent)
         self.sigmoid = nn.Sigmoid()
         
@@ -208,7 +207,7 @@ class Siamese_SCC(nn.Module):
 
         self.regressor = predictor(self.dim_latent) ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
         self.delta_regressor = nn.Sequential(
-            nn.Linear(self.dim_latent*2, 1, bias = True)
+            nn.Linear(self.dim_latent*1, 1, bias = True)
         )
         
         ## Activation
@@ -216,22 +215,21 @@ class Siamese_SCC(nn.Module):
         self.tanh = nn.Tanh()
         
     def forward(self, x):
-        ### Parallel sub-network 2
+        ### Sub-network 1
         latent = []
         for j in range(self.sm_num, x.size()[1]):
             t, _ = self.feat_extractor(x[:,j,:,:].unsqueeze(1))
             latent.append(t)
-            
+        
+        ### DI of the current input trial   
         latent = torch.cat(latent, 3)
         # print("latent size: ", latent.size())
         latent = self.GAP(latent)
-
-
         x_di = torch.flatten(latent, 1)
         x_di = self.regressor(x_di)
         output_di = self.sigmoid(x_di)
         
-        ### Parallel sub-network baseline
+        ### Sub-network 2 (baseline)
         with torch.no_grad():
             b_latent = []
             for i in range(0,self.sm_num):
@@ -241,9 +239,9 @@ class Siamese_SCC(nn.Module):
             b_latent = torch.cat(b_latent,3)
             b_latent = self.GAP(b_latent)
             
-        ### Regression head
-        x_delta = torch.cat((b_latent, latent), 2)
-        # x_delta = torch.sub(latent, b_latent)
+        ### Concatenate and Regression head
+        # x_delta = torch.cat((b_latent, latent), 2)
+        x_delta = torch.sub(latent, b_latent)
         x_delta = torch.flatten(x_delta, 1)
         output_delta = self.delta_regressor(x_delta)
         output_delta = self.tanh(output_delta)

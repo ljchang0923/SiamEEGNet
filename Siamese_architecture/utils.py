@@ -6,12 +6,9 @@ import matplotlib.pyplot as plt
 import os
 import random
 import scipy
-from math import sqrt
+from math import sqrt,isnan
 import json
 from tqdm import tqdm
-
-from models import CCLoss
-
 
 
 def set_seed(seed):
@@ -124,7 +121,7 @@ def train_model(model, train_dl, test_dl, device, cfg, thres_alert, thres_drowsy
         print(f"[{epoch+1}/{cfg['epoch']}] epoch: train loss-> {total_loss/len(train_dl.dataset)}")
         print(f"val loss-> {val_loss} rmse -> {rmse} cc -> {cc}")
         matrice = 0.5* rmse + 0.5*(1-cc)
-        if(matrice < mini):
+        if(matrice < mini and not isnan(cc)):
             mini = matrice
             best_rmse = rmse
             best_cc = cc
@@ -180,7 +177,7 @@ def plot_result(output, test_truth, time_point, cfg, idx):
     plt.ylabel('Delta DI', **hfont)
     plt.legend(['Prediction', 'True delta DI'])
 
-    fig_dir = f'fig_{cfg["scenario"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["EEG_ch"]}ch/'
+    fig_dir = f'fig/fig_{cfg["scenario"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["EEG_ch"]}ch/'
     if not os.path.exists(fig_dir):
         os.makedirs(fig_dir)
     plt.savefig(fig_dir + f'{cfg["ts_sub"]}-{idx+1}.png')

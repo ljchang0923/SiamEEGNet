@@ -10,7 +10,7 @@ def dataloader(train_data, train_truth, session, mode, cfg):
     x_train = np2TT(train_data)
     y_train = np2TT(train_truth)
     train_dataset = Pair_Dataloader(x_train, y_train, session, mode, cfg)
-    if mode == 'train' or mode == 'val':
+    if mode == 'train' or mode == 'baseline':
         dl = DataLoader(
             dataset = train_dataset,
             batch_size = cfg['batch_size'],
@@ -35,7 +35,6 @@ class Pair_Dataloader(Dataset):
         self.truth = truth
         self.session = session
         self.mode = mode
-        self.bs_index = 0
         self.pairing = cfg['pairing']
 
     def __len__(self):
@@ -49,10 +48,8 @@ class Pair_Dataloader(Dataset):
         if self.mode=='train':
             population = range(self.session[index][0], self.session[index][1])
             sample_idx = random.sample(population, self.pairing)
-        elif self.mode =='test':
-            sample_idx = [self.bs_index]
-        elif self.mode =='val':
-            sample_idx = [self.bs_index]
+        elif self.mode =='test' or self.mode == 'baseline':
+            sample_idx = [self.session[index][0]]
         else:
             raise ValueError('Invalid mode')
 
