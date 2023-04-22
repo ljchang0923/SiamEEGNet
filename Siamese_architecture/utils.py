@@ -192,7 +192,7 @@ def test_model(model, test_dl, device):
 
     return output
 
-def plot_result(output, test_truth, time_point, cfg, idx):
+def plot_result(output, test_truth, time_point, cfg, idx=None):
     
     plt.figure(figsize=(10, 5))
     plt.rc('font', size=12)
@@ -208,5 +208,8 @@ def plot_result(output, test_truth, time_point, cfg, idx):
     fig_dir = f'fig/fig_{cfg["scenario"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["EEG_ch"]}ch/'
     if not os.path.exists(fig_dir):
         os.makedirs(fig_dir)
-    plt.savefig(fig_dir + f'{cfg["ts_sub"]}-{idx+1}.png')
+    if(idx == None):
+        plt.savefig(fig_dir + f'{cfg["ts_sub"]}.png')
+    else:
+        plt.savefig(fig_dir + f'{cfg["ts_sub"]}-{idx+1}.png')
     plt.clf()

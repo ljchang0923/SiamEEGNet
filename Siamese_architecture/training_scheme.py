@@ -10,13 +10,17 @@ import argparse
 import pickle
 
 from utils import create_multi_window_input, plot_result, train_model, val_model, test_model
-from models import Siamese_SCC, CCLoss
+from models import Siamese_CNN, CCLoss
 from DataLoader import dataloader
     
 
 def train_individual(cfg):
     device = cfg['device']
     filelist = sorted(os.listdir(cfg['data_dir']))
+
+    drowsy_grad_dict = {}
+    alert_grad_dict = {}
+    all_grad_dict = {}
 
     for filename in filelist:
         if filename.endswith('.mat'):
@@ -30,15 +34,31 @@ def train_individual(cfg):
 
         train_dl = dataloader(train_data, train_truth, tr_session_bound, "train", cfg)
         test_dl = dataloader(train_data, train_truth, tr_session_bound, "test", cfg)
+
+        thres_drowsy = np.quantile(train_truth, 0.85)
+        thres_alert = np.quantile(train_truth, 0.15)
         
-        model = Siamese_SCC(cfg).to(device)
+        model = Siamese_CNN(cfg).to(device)
         print('Training: ', filename[:-4])
 
-        loss_record = train_model(model, train_dl, test_dl, device, cfg)
+        loss_record, grad_acc = train_model(model, train_dl, test_dl, device, cfg, thres_alert, thres_drowsy)
+
+        all_grad_dict[cfg['ts_sub']] = grad_acc["all"]
+        alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
+        drowsy_grad_dict[cfg['ts_sub']] = grad_acc["drowsy"]
 
         del train_data, train_truth, tr_session_bound
         del train_dl, test_dl
         del model
+
+    with open(f'gradient/drowsy_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+        pickle.dump(drowsy_grad_dict, f)
+
+    with open(f'gradient/alert_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+        pickle.dump(alert_grad_dict, f)
+        
+    with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+        pickle.dump(all_grad_dict, f)
 
 def test_within_subject(cfg):
     device = cfg['device']
@@ -63,7 +83,7 @@ def test_within_subject(cfg):
         for name in filelist:
             if name.endswith('.mat') and name != filename and name[:4] == filename[:4]:
                 model_path = name[:-4] +'_model.pt'
-                model = Siamese_SCC(cfg).to(device)
+                model = Siamese_CNN(cfg).to(device)
                 model.load_state_dict(torch.load(cfg['model_dir'] + model_path))
                 print(model_path)
                 pred = test_model(model, test_dl, device)
@@ -79,7 +99,7 @@ def test_within_subject(cfg):
         print('test on model ' + model_path)
         print('RMSE: ', rmse, ' CC:', cc[0,1])
         
-        # plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, cfg)
+        plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, cfg)
         with open(cfg['log_file'], 'a') as f:
             f.writelines('%s\t%.3f\t%.3f\n'%(filename[:-4], rmse, cc[0,1]))
 
@@ -147,7 +167,7 @@ def train_cross_subject(cfg):
     low_bound = 0
 
     # dictionary to store gradient
-    grad_dict = {}
+    drowsy_grad_dict = {}
     alert_grad_dict = {}
     all_grad_dict = {}
 
@@ -203,11 +223,11 @@ def train_cross_subject(cfg):
         thres_alert = np.quantile(train_truth, 0.15)
 
         # wrap up to the Dataloader
-        train_dl = dataloader(train_data, train_truth, tr_session_bound, 'baseline', cfg)
+        train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
         val_dl = dataloader(val_data, val_truth, val_session_bound, 'test', cfg)
 
         ''' Model setup and training '''
-        model = Siamese_SCC(cfg).to(device)
+        model = Siamese_CNN(cfg).to(device)
         print ('validate on: ', sub_list[val_sub_idx])
         print('test on: ', cfg['ts_sub'])
         print('Start training...')
@@ -240,13 +260,13 @@ def train_cross_subject(cfg):
         del train_data, train_truth, test_data, test_truth,  val_data, val_truth
         del train_dl, test_dl, val_dl
     
-    with open('gradient/drowsy_grad_cross_baseline.pkl', 'wb') as f:
+    with open(f'gradient/drowsy_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
         pickle.dump(drowsy_grad_dict, f)
 
-    with open('gradient/alert_grad_cross_baseline.pkl', 'wb') as f:
+    with open(f'gradient/alert_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
         pickle.dump(alert_grad_dict, f)
         
-    with open('gradient/all_grad_cross_baseline.pkl', 'wb') as f:
+    with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
         pickle.dump(all_grad_dict, f)
 
 

@@ -34,25 +34,29 @@ class CCLoss(nn.Module):
         return (1-self.r2) * loss1 + (self.r2) * loss2
 
 class EEGNet(nn.Module):
-    def __init__(self):
+    def __init__(self, cfg):
         super(EEGNet, self).__init__()
+
+        self.EEG_ch = cfg["EEG_ch"]
+        self.F1 = 16
+        self.F2 = 32
 
         self.activation = nn.ELU()
 
         self.conv_block1 = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(1, 125), stride=(1,1), padding=(0,62), bias=False),
-            nn.BatchNorm2d(16)
+            nn.Conv2d(in_channels=1, out_channels=self.F1, kernel_size=(1, 125), stride=(1,1), padding=(0,62), bias=False),
+            nn.BatchNorm2d(self.F1)
         )
         self.depthwiseConv = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(30, 1), stride=(1,1), groups=16, bias=False),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(in_channels=self.F1, out_channels=self.F2, kernel_size=(self.EEG_ch, 1), stride=(1,1), groups=16, bias=False),
+            nn.BatchNorm2d(self.F2),
             self.activation,
             nn.AvgPool2d((1,4), stride=(1,4), padding=0),
             nn.Dropout(0.25)
         )
         self.separableConv = nn.Sequential(
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(1, 31), stride=(1,1), padding = (0,15), bias=False),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(in_channels=self.F2, out_channels=self.F2, kernel_size=(1, 31), stride=(1,1), padding = (0,15), bias=False),
+            nn.BatchNorm2d(self.F2),
             self.activation,
             nn.AvgPool2d((1,187), stride=(1,1), padding=0),
             # nn.AvgPool2d((1,8), stride=(1,8), padding=0),
@@ -72,15 +76,19 @@ class EEGNet(nn.Module):
         return x, out
 
 class ShallowConvNet(nn.Module):
-    def __init__(self):
+    def __init__(self, cfg):
         super(ShallowConvNet, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 40, (1, 25), bias=False)
-        self.conv2 = nn.Conv2d(40, 40, (30, 1), bias=False)
-        self.Bn1   = nn.BatchNorm2d(40)
-        # self.SquareLayer = square_layer()
+        self.EEG_ch = cfg["EEG_ch"]
+        self.F1 = 40
+        self.F2 = 40
+
+        self.conv1 = nn.Conv2d(1, self.F1, (1, 25), bias=False)
+        self.conv2 = nn.Conv2d(self.F1, self.F2, (self.EEG_ch, 1), bias=False)
+        self.Bn1   = nn.BatchNorm2d(self.F2)
+
         self.AvgPool1 = nn.AvgPool2d((1, 726), stride=(1, 1))
-        # self.LogLayer = Log_layer()
+    
         self.Drop1 = nn.Dropout(0.25)
         self.regressor = predictor(40)
 
@@ -113,17 +121,18 @@ class SCCNet(nn.Module):
         # temporal and spatial filter
         self.Conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F1, kernel_size=(self.num_ch, 1)),
-            # nn.BatchNorm2d(22)
+            nn.BatchNorm2d(self.F1)
         )
         self.Conv_block2 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F2, kernel_size=(self.F1, self.t1), padding=(0, self.t1//2)),
-            # nn.BatchNorm2d(20)
+            nn.BatchNorm2d(self.F2)
         )
 
         self.AveragePooling1 = nn.AvgPool2d((1, self.t2))
         # self.AveragePooling1 = nn.AvgPool2d((1,125), stride = (1,25))
         # stride is set as 25 (0.1 sec correspond to time domain)
         # kernel size 125 mean 0.5 sec
+        self.dropout = nn.Dropout(0.5)
         self.regressor = predictor(self.F2)
         self.sigmoid = nn.Sigmoid()
 
@@ -135,12 +144,13 @@ class SCCNet(nn.Module):
 
     def forward(self, x):
         x = self.Conv_block1(x)
-
         x = x.permute(0,2,1,3)
+
         x = self.Conv_block2(x)
         x = self.square(x)
+        x = self.dropout(x)
 
-        x = x.permute(0,2,1,3)
+        # x = x.permute(0,2,1,3)
         x = self.AveragePooling1(x)
         latent = self.log_activation(x)
    
@@ -195,19 +205,32 @@ class SCC_multi_window(nn.Module):
 
         return latent, output
 
-class Siamese_SCC(nn.Module):
+def selector(model):
+    if model == "SCCNet":
+        return SCCNet
+    elif model == "EEGNet":
+        return EEGNet
+    elif model == "ShallowNet":
+        return ShallowConvNet
+    else:
+        raise ValueError("Undefined model")
+
+class Siamese_CNN(nn.Module):
     def __init__(self, cfg):
-        super(Siamese_SCC, self).__init__()
+        super(Siamese_CNN, self).__init__()
 
         self.sm_num = cfg['num_window']
-        self.feat_extractor = SCCNet(cfg)
+
+        eegmodel = selector(cfg["backbone"])      
+        self.feat_extractor = eegmodel(cfg)
+        # self.feat_extractor = SCCNet(cfg)
         self.dim_latent = self.feat_extractor.F2
 
         self.GAP = nn.AvgPool2d((1,self.sm_num))
 
         self.regressor = predictor(self.dim_latent) ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
         self.delta_regressor = nn.Sequential(
-            nn.Linear(self.dim_latent*1, 1, bias = True)
+            nn.Linear(self.dim_latent*2, 1, bias = True)
         )
         
         ## Activation
@@ -240,11 +263,10 @@ class Siamese_SCC(nn.Module):
             b_latent = self.GAP(b_latent)
             
         ### Concatenate and Regression head
-        # x_delta = torch.cat((b_latent, latent), 2)
-        x_delta = torch.sub(latent, b_latent)
+        x_delta = torch.cat((b_latent, latent), 2)
+        # x_delta = torch.sub(latent, b_latent)
         x_delta = torch.flatten(x_delta, 1)
         output_delta = self.delta_regressor(x_delta)
         output_delta = self.tanh(output_delta)
-        # print('output size', output.size())
 
         return x_delta, output_di, output_delta

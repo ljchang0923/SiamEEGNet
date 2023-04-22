@@ -17,8 +17,8 @@ def main():
     cfg = read_json(args.config_path)
     cfg['device'] = args.device
     cfg['scenario'] = args.scenario
-    cfg['log_file'] = f'log/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_baseline'
-    cfg['model_dir'] = f'{cfg["model_dir"]}siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_baseline/'
+    cfg['log_file'] = f'log/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch'
+    cfg['model_dir'] = f'{cfg["model_dir"]}siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
     if not os.path.exists(cfg['model_dir']):
         os.makedirs(cfg['model_dir'])
 
@@ -29,8 +29,9 @@ def main():
         #     train_individual(cfg)
         #     model_fusion(cfg)
         elif args.scenario == 'within_subject':
-            train_individual(cfg)
-            test_within_subject(cfg)
+            for i in range(4):
+                train_individual(cfg)
+                test_within_subject(cfg)
         else:
             raise ValueError('Invalid scenario')
 
