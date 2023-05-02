@@ -5,23 +5,24 @@ from torch.utils.data import TensorDataset, DataLoader, Dataset
 import random
 
 
-def dataloader(train_data, train_truth, mode, cfg):
+def dataloader(data, truth, session, mode, cfg):
 
-    x_train = np2TT(train_data)
-    y_train = np2TT(train_truth)
-    train_dataset = Pair_Dataloader(x_train, y_train)
+    x = np2TT(data)
+    y = np2TT(truth).unsqueeze(1)
+    dataset = Dataloader(x, y)
+
     if mode == 'train':
         dl = DataLoader(
-            dataset = train_dataset,
+            dataset = dataset,
             batch_size = cfg['batch_size'],
-            shuffle = cfg["shuffle"] == 'True',
+            shuffle = cfg["shuffle"] == "True",
             num_workers = 4,
             pin_memory=True
         )
     elif mode == 'test':
         dl = DataLoader(
-            dataset = train_dataset,
-            batch_size = len(train_dataset),
+            dataset = dataset,
+            batch_size = len(x),
             shuffle = False,
             num_workers = 4,
             pin_memory=True
@@ -38,7 +39,7 @@ class Dataloader(Dataset):
         return len(self.data)		
 
     def __getitem__(self, index):
-        x = self.data[index,:,:,:]
+        x = self.data[index]
         y = self.truth[index]
 
         return x, y

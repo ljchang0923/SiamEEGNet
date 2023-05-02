@@ -3,6 +3,7 @@ import scipy.io
 import torch
 import numpy as np
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
 from math import sqrt
 import os
 from pathlib import Path
@@ -10,9 +11,77 @@ import argparse
 import pickle
 
 from utils import create_multi_window_input, plot_result, train_model, val_model, test_model
-from models import Siamese_CNN, CCLoss
+from models import Siamese_CNN
 from DataLoader import dataloader
-    
+
+
+def train_within_subject(cfg):
+    device = cfg['device']
+    filelist = sorted(os.listdir(cfg['data_dir']))
+
+    # Load all data
+    sub_list = {}
+    data = {}
+    truth = {}
+    onset_time = {}
+    print("Loading data...")
+    for filename in filelist:
+        
+        if not filename.endswith('.mat'):
+            continue
+
+        single_train_data, single_train_truth, _, single_onset_time, _ = create_multi_window_input(filename, 0, cfg)
+        if(filename[:3] not in sub_list):
+            sub_list[filename[:3]] = []
+            data[filename[:3]] = {}
+            truth[filename[:3]] = {}
+            onset_time[filename[:3]] = {}
+
+        sub_list[filename[:3]].append(filename[:-4])
+        data[filename[:3]][filename[:-4]] = single_train_data
+        truth[filename[:3]][filename[:-4]] = single_train_truth
+        onset_time[filename[:3]][filename[:-4]] = single_onset_time
+
+    drowsy_grad_dict = {}
+    alert_grad_dict = {}
+    all_grad_dict = {}
+    for sub, sess in sub_list.items():
+        for train_sess in sess:
+
+            cfg["ts_sub"] = train_sess
+            train_data = np.array(data[sub][train_sess], dtype=np.float32)
+            train_truth = truth[sub][train_sess].astype('float32')
+            tr_session_bound = np.tile([0, train_data.shape[0] - 1], (train_data.shape[0], 1))
+
+            thres_drowsy = np.quantile(train_truth, 0.85)
+            thres_alert = np.quantile(train_truth, 0.15)
+
+
+            train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
+            val_dl = dataloader(train_data, train_truth, tr_session_bound, 'test', cfg)
+
+            print("Training session: ", train_sess)
+            model = Siamese_CNN(cfg).to(device)
+            loss_record, grad_acc = train_model(model, train_dl, val_dl, device, cfg, thres_alert, thres_drowsy) 
+
+            all_grad_dict[cfg['ts_sub']] = grad_acc["all"]
+            alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
+            drowsy_grad_dict[cfg['ts_sub']] = grad_acc["drowsy"]
+
+            del train_data, train_truth, tr_session_bound
+            del train_dl, val_dl
+            del model
+
+    if cfg['saliency_map']:
+        with open(f'gradient/drowsy_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+            pickle.dump(drowsy_grad_dict, f)
+
+        with open(f'gradient/alert_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+            pickle.dump(alert_grad_dict, f)
+            
+        with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+            pickle.dump(all_grad_dict, f)
+
 
 def train_individual(cfg):
     device = cfg['device']

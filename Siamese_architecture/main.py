@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import argparse
 from utils import read_json
-from training_scheme import train_individual, train_cross_subject
+from training_scheme import train_individual, train_within_subject, train_cross_subject
 from training_scheme import test_within_subject, test_cross_subject, model_fusion
 
     
@@ -17,11 +17,17 @@ def main():
     cfg = read_json(args.config_path)
     cfg['device'] = args.device
     cfg['scenario'] = args.scenario
-    cfg['log_file'] = f'log/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch'
-    cfg['model_dir'] = f'{cfg["model_dir"]}siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
+    cfg['saliency_map'] = False
+    cfg['log_file'] = f'log/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_trial'
+    cfg['model_dir'] = f'{cfg["model_dir"]}siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_trial/'
+    cfg['fig_dir'] = f'fig/fig_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_trial/'
     if not os.path.exists(cfg['model_dir']):
         os.makedirs(cfg['model_dir'])
 
+    if not os.path.exists(cfg['fig_dir']):
+        os.makedirs(cfg['fig_dir'])
+
+    print("Backbone: ", cfg["backbone"])
     if args.mode == "train":
         if args.scenario == 'cross_subject':
             train_cross_subject(cfg)
@@ -29,8 +35,8 @@ def main():
         #     train_individual(cfg)
         #     model_fusion(cfg)
         elif args.scenario == 'within_subject':
-            for i in range(4):
-                train_individual(cfg)
+            for i in range(5):
+                train_within_subject(cfg)
                 test_within_subject(cfg)
         else:
             raise ValueError('Invalid scenario')

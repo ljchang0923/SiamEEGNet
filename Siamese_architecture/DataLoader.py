@@ -10,11 +10,12 @@ def dataloader(train_data, train_truth, session, mode, cfg):
     x_train = np2TT(train_data)
     y_train = np2TT(train_truth)
     train_dataset = Pair_Dataloader(x_train, y_train, session, mode, cfg)
+    
     if mode == 'train' or mode == 'baseline':
         dl = DataLoader(
             dataset = train_dataset,
             batch_size = cfg['batch_size'],
-            shuffle = cfg["shuffle"] == 'True',
+            shuffle = cfg["shuffle"] == "True",
             num_workers = 4,
             pin_memory=True
         )

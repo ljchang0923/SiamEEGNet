@@ -36,7 +36,7 @@ def create_multi_window_input(filename, low_bound, cfg):
     elif cfg['EEG_ch'] == 4:
         ch_num = [0, 1, 27, 29] 
     elif cfg['EEG_ch'] == 2:
-        ch_num = [0, 1] 
+        ch_num = [27, 29] 
     elif cfg['EEG_ch'] == 30:
         ch_num = np.arange(0,30)
     else:
@@ -66,22 +66,23 @@ def create_multi_window_input(filename, low_bound, cfg):
 class grad_accumulator:
     def __init__(self, thres_alert, thres_drowsy, cfg):
 
+        self.num_win = cfg["num_window"]
         self.thres_alert = thres_alert
         self.thres_drowsy = thres_drowsy
         self.grad_acc = {}
-        self.grad_acc["drowsy"] = torch.zeros((cfg["num_window"], cfg["EEG_ch"],750))
-        self.grad_acc["all"] = torch.zeros((cfg["num_window"], cfg["EEG_ch"],750))
-        self.grad_acc["alert"] = torch.zeros((cfg["num_window"], cfg["EEG_ch"],750))
+        self.grad_acc["drowsy"] = torch.zeros((self.num_win, cfg["EEG_ch"], 750))
+        self.grad_acc["all"] = torch.zeros((self.num_win, cfg["EEG_ch"], 750))
+        self.grad_acc["alert"] = torch.zeros((self.num_win, cfg["EEG_ch"], 750))
 
     def update(self, grad, y_train):
-        self.grad_acc["all"] += torch.sum(grad[:, 10:, :].cpu(), 0)
+        self.grad_acc["all"] += torch.sum(grad[:, self.num_win:, :].cpu(), 0)
 
         drowsy_grad = grad[(y_train[:, 0] >= self.thres_drowsy).view(-1)]
-        drowsy_grad = drowsy_grad[:, 10:, :, :]
+        drowsy_grad = drowsy_grad[:, self.num_win:, :, :]
         self.grad_acc["drowsy"] += torch.sum(drowsy_grad.cpu(), 0)
         
         alert_grad = grad[(y_train[:, 0] <= self.thres_alert).view(-1)]
-        alert_grad = alert_grad[:, 10:, :, :]
+        alert_grad = alert_grad[:, self.num_win:, :, :]
         self.grad_acc["alert"] += torch.sum(alert_grad.cpu(), 0)
 
 
@@ -100,12 +101,6 @@ def train_model(model, train_dl, test_dl, device, cfg, thres_alert, thres_drowsy
     best_cc = 0
 
     grad = grad_accumulator(thres_alert, thres_drowsy, cfg)
-
-    # grad_acc = {}
-    # grad_acc["drowsy"] = torch.zeros((cfg["num_window"], cfg["EEG_ch"],750))
-    # grad_acc["all"] = torch.zeros((cfg["num_window"], cfg["EEG_ch"],750))
-    # grad_acc["alert"] = torch.zeros((cfg["num_window"], cfg["EEG_ch"],750))
-
     
     for epoch in range(cfg['epoch']):
         model.train()
@@ -126,17 +121,6 @@ def train_model(model, train_dl, test_dl, device, cfg, thres_alert, thres_drowsy
                 loss.backward(retain_graph=True)
 
                 grad.update(x_train.grad, y_train)
-                # all_grad = x_train.grad
-                # all_grad = all_grad[:, 10:, :]
-                # grad_acc["all"] += torch.sum(all_grad.cpu(), 0)
-
-                # drowsy_grad = x_train.grad[(y_train[:, 0] >= thres_drowsy).view(-1)]
-                # drowsy_grad = drowsy_grad[:, 10:, :, :]
-                # grad_acc["drowsy"] += torch.sum(drowsy_grad.cpu(), 0)
-                
-                # alert_grad = x_train.grad[(y_train[:, 0] <= thres_alert).view(-1)]
-                # alert_grad = alert_grad[:, 10:, :, :]
-                # grad_acc["alert"] += torch.sum(alert_grad.cpu(), 0)
 
                 optimizer.step()
                 
@@ -205,11 +189,8 @@ def plot_result(output, test_truth, time_point, cfg, idx=None):
     plt.ylabel('Delta DI', **hfont)
     plt.legend(['Prediction', 'True delta DI'])
 
-    fig_dir = f'fig/fig_{cfg["scenario"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["EEG_ch"]}ch/'
-    if not os.path.exists(fig_dir):
-        os.makedirs(fig_dir)
     if(idx == None):
-        plt.savefig(fig_dir + f'{cfg["ts_sub"]}.png')
+        plt.savefig(cfg['fig_dir'] + f'{cfg["ts_sub"]}.png')
     else:
-        plt.savefig(fig_dir + f'{cfg["ts_sub"]}-{idx+1}.png')
+        plt.savefig(cfg['fig_dir'] + f'{cfg["ts_sub"]}-{idx+1}.png')
     plt.clf()
