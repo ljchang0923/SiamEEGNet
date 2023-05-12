@@ -3,13 +3,16 @@ import torch
 from torch import from_numpy as np2TT
 from torch.utils.data import TensorDataset, DataLoader, Dataset
 import random
+import scipy.signal as signal
 
 
-def dataloader(train_data, train_truth, session, mode, cfg):
+def dataloader(data, truth, session, mode, cfg):
+    
+    data = np2TT(data)
+    truth = np2TT(truth)
 
-    x_train = np2TT(train_data)
-    y_train = np2TT(train_truth)
-    train_dataset = Pair_Dataloader(x_train, y_train, session, mode, cfg)
+    print("x train:　", type(data), data.size())
+    train_dataset = Pair_Dataloader(data, truth, session, mode, cfg['pairing'])
     
     if mode == 'train' or mode == 'baseline':
         dl = DataLoader(
@@ -17,7 +20,7 @@ def dataloader(train_data, train_truth, session, mode, cfg):
             batch_size = cfg['batch_size'],
             shuffle = cfg["shuffle"] == "True",
             num_workers = 4,
-            pin_memory=True
+            pin_memory=True,
         )
     elif mode == 'test':
         dl = DataLoader(
@@ -31,12 +34,12 @@ def dataloader(train_data, train_truth, session, mode, cfg):
     return dl
 
 class Pair_Dataloader(Dataset):
-    def __init__(self, data, truth, session, mode, cfg):
+    def __init__(self, data, truth, session, mode, pairing=1):
         self.data = data
         self.truth = truth
         self.session = session
         self.mode = mode
-        self.pairing = cfg['pairing']
+        self.pairing = pairing
 
     def __len__(self):
         return len(self.data)		

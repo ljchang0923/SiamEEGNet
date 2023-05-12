@@ -3,21 +3,20 @@ import scipy.io
 import torch
 import numpy as np
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
 from math import sqrt
 import os
 from pathlib import Path
 import argparse
 import pickle
 
-from utils import create_multi_window_input, plot_result, train_model, val_model, test_model
+from utils import create_multi_window_input, plot_result, train_model, test_model
 from models import Siamese_CNN
 from DataLoader import dataloader
 
 
-def train_within_subject(cfg):
-    device = cfg['device']
-    filelist = sorted(os.listdir(cfg['data_dir']))
+def train_within_subject(cfg, save_path):
+
+    filelist = sorted(os.listdir(save_path['data_dir']))
 
     # Load all data
     sub_list = {}
@@ -26,11 +25,11 @@ def train_within_subject(cfg):
     onset_time = {}
     print("Loading data...")
     for filename in filelist:
-        
         if not filename.endswith('.mat'):
             continue
 
-        single_train_data, single_train_truth, _, single_onset_time, _ = create_multi_window_input(filename, 0, cfg)
+        file_path = save_path['data_dir'] + filename
+        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
         if(filename[:3] not in sub_list):
             sub_list[filename[:3]] = []
             data[filename[:3]] = {}
@@ -55,14 +54,17 @@ def train_within_subject(cfg):
 
             thres_drowsy = np.quantile(train_truth, 0.85)
             thres_alert = np.quantile(train_truth, 0.15)
-
+            thres = {
+                    'drowsy': thres_drowsy,
+                    'alert': thres_alert
+                    }
 
             train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
             val_dl = dataloader(train_data, train_truth, tr_session_bound, 'test', cfg)
 
             print("Training session: ", train_sess)
-            model = Siamese_CNN(cfg).to(device)
-            loss_record, grad_acc = train_model(model, train_dl, val_dl, device, cfg, thres_alert, thres_drowsy) 
+            model = Siamese_CNN(**cfg).to(cfg['device'])
+            loss_record, grad_acc = train_model(model, train_dl, val_dl, thres, cfg, save_path['model_dir']) 
 
             all_grad_dict[cfg['ts_sub']] = grad_acc["all"]
             alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
@@ -83,61 +85,15 @@ def train_within_subject(cfg):
             pickle.dump(all_grad_dict, f)
 
 
-def train_individual(cfg):
-    device = cfg['device']
-    filelist = sorted(os.listdir(cfg['data_dir']))
-
-    drowsy_grad_dict = {}
-    alert_grad_dict = {}
-    all_grad_dict = {}
+def test_within_subject(cfg, save_path):
+    filelist = sorted(os.listdir(save_path['data_dir']))
 
     for filename in filelist:
-        if filename.endswith('.mat'):
-            train_data, train_truth, tr_session_bound, _, _ = create_multi_window_input(filename, 0, cfg)
-        else:
+        if not filename.endswith('.mat'):
             continue
-        cfg["ts_sub"] = filename[:-4]
-        train_data = np.array(train_data, dtype=np.float32)
-        train_truth = train_truth.astype('float32')
-        print("Number of trial: ", train_data.shape[0])
 
-        train_dl = dataloader(train_data, train_truth, tr_session_bound, "train", cfg)
-        test_dl = dataloader(train_data, train_truth, tr_session_bound, "test", cfg)
-
-        thres_drowsy = np.quantile(train_truth, 0.85)
-        thres_alert = np.quantile(train_truth, 0.15)
-        
-        model = Siamese_CNN(cfg).to(device)
-        print('Training: ', filename[:-4])
-
-        loss_record, grad_acc = train_model(model, train_dl, test_dl, device, cfg, thres_alert, thres_drowsy)
-
-        all_grad_dict[cfg['ts_sub']] = grad_acc["all"]
-        alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
-        drowsy_grad_dict[cfg['ts_sub']] = grad_acc["drowsy"]
-
-        del train_data, train_truth, tr_session_bound
-        del train_dl, test_dl
-        del model
-
-    with open(f'gradient/drowsy_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
-        pickle.dump(drowsy_grad_dict, f)
-
-    with open(f'gradient/alert_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
-        pickle.dump(alert_grad_dict, f)
-        
-    with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
-        pickle.dump(all_grad_dict, f)
-
-def test_within_subject(cfg):
-    device = cfg['device']
-    filelist = sorted(os.listdir(cfg['data_dir']))
-
-    for filename in filelist:
-        if filename.endswith('.mat'):
-            test_data, test_truth, ts_session_bound, onset_time, _ = create_multi_window_input(filename, 0, cfg)
-        else:
-            continue
+        file_path = save_path['data_dir'] + filename
+        test_data, test_truth, onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
 
         baseline_idx = 0    
         cfg["ts_sub"] = filename[:-4]
@@ -145,6 +101,7 @@ def test_within_subject(cfg):
         test_truth = test_truth.astype('float32')
         print("data size: ", test_data.shape)
         print("truth shape: ", test_truth.shape)
+
         test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
 
         print("testing session: ", filename[:-4])
@@ -152,10 +109,10 @@ def test_within_subject(cfg):
         for name in filelist:
             if name.endswith('.mat') and name != filename and name[:4] == filename[:4]:
                 model_path = name[:-4] +'_model.pt'
-                model = Siamese_CNN(cfg).to(device)
-                model.load_state_dict(torch.load(cfg['model_dir'] + model_path))
+                model = Siamese_CNN(**cfg).to(cfg['device'])
+                model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
                 print(model_path)
-                pred = test_model(model, test_dl, device)
+                pred = test_model(model, test_dl, cfg)
                 pred_set.append(pred[0])
       
         pred_set = torch.cat(pred_set, 1)
@@ -168,8 +125,8 @@ def test_within_subject(cfg):
         print('test on model ' + model_path)
         print('RMSE: ', rmse, ' CC:', cc[0,1])
         
-        plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, cfg)
-        with open(cfg['log_file'], 'a') as f:
+        plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, save_path['fig_dir'], cfg)
+        with open(save_path['log_file'], 'a') as f:
             f.writelines('%s\t%.3f\t%.3f\n'%(filename[:-4], rmse, cc[0,1]))
 
 def model_fusion(cfg):
@@ -223,10 +180,9 @@ def model_fusion(cfg):
             # with open("model_selection/" + filename[:-4], 'a') as f:
             #     f.writelines('%s\t%.3f\t%.3f\t%f\n'%(name[:-4], rmse, cc[0,1], abs(bs_delta)))
     
-def train_cross_subject(cfg):
+def train_cross_subject(cfg, save_path):
 
-    device = cfg['device']
-    filelist = sorted(os.listdir(cfg['data_dir']))
+    filelist = sorted(os.listdir(save_path['data_dir']))
 
     # Load all data
     sub_list = []
@@ -242,17 +198,21 @@ def train_cross_subject(cfg):
 
     print("Loading data...")
     for filename in filelist:
-        if filename.endswith('.mat'):
-            single_train_data, single_train_truth, _, single_onset_time, low_bound = create_multi_window_input(filename, low_bound, cfg)
-            if(filename[:3] not in sub_list):
-                sub_list.append(filename[:3])
-                data[filename[:3]] = []
-                truth[filename[:3]] = []
-                onset_time[filename[:3]] = []
+        if not filename.endswith('.mat'):
+            continue
+        
+        file_path = save_path['data_dir'] + filename
+        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
+            
+        if(filename[:3] not in sub_list):
+            sub_list.append(filename[:3])
+            data[filename[:3]] = []
+            truth[filename[:3]] = []
+            onset_time[filename[:3]] = []
 
-            data[filename[:3]].append(single_train_data)
-            truth[filename[:3]].append(single_train_truth)
-            onset_time[filename[:3]].append(single_onset_time)
+        data[filename[:3]].append(single_train_data)
+        truth[filename[:3]].append(single_train_truth)
+        onset_time[filename[:3]].append(single_onset_time)
 
     # train the model for all subject iteratively
 
@@ -276,13 +236,14 @@ def train_cross_subject(cfg):
         tr_session_bound = []
         low = 0
         for tr_sub_idx in range(len(sub_list)):
-            if tr_sub_idx != ts_sub_idx and tr_sub_idx != val_sub_idx:
-                for idx in range(len(data[sub_list[tr_sub_idx]])):
-                    train_data = train_data + data[sub_list[tr_sub_idx]][idx]
-                    train_truth.append(truth[sub_list[tr_sub_idx]][idx].astype('float32'))
-                    data_len = len(data[sub_list[tr_sub_idx]][idx])
-                    tr_session_bound.append(np.tile([low, low + data_len - 1], (data_len, 1)))
-                    low += data_len
+            if tr_sub_idx == ts_sub_idx or tr_sub_idx == val_sub_idx:
+                continue
+            for sess_idx in range(len(data[sub_list[tr_sub_idx]])):
+                train_data = train_data + data[sub_list[tr_sub_idx]][sess_idx]
+                train_truth.append(truth[sub_list[tr_sub_idx]][sess_idx].astype('float32'))
+                data_len = len(data[sub_list[tr_sub_idx]][sess_idx])
+                tr_session_bound.append(np.tile([low, low + data_len - 1], (data_len, 1)))
+                low += data_len
 
         train_data = np.array(train_data, dtype=np.float32) # (#total training trial, #window, #channel, #timepoint)
         train_truth = np.concatenate(train_truth, 0) # (#total training trial, )
@@ -290,18 +251,22 @@ def train_cross_subject(cfg):
 
         thres_drowsy = np.quantile(train_truth, 0.85)
         thres_alert = np.quantile(train_truth, 0.15)
+        thres = {
+                'drowsy': thres_drowsy,
+                'alert': thres_alert
+                }
 
         # wrap up to the Dataloader
         train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
         val_dl = dataloader(val_data, val_truth, val_session_bound, 'test', cfg)
 
         ''' Model setup and training '''
-        model = Siamese_CNN(cfg).to(device)
-        print ('validate on: ', sub_list[val_sub_idx])
-        print('test on: ', cfg['ts_sub'])
+        model = Siamese_CNN(**cfg).to(cfg['device'])
+        print ('Validate on: ', sub_list[val_sub_idx])
+        print('Test on: ', cfg['ts_sub'])
         print('Start training...')
 
-        a_, grad_acc = train_model(model, train_dl, val_dl, device, cfg, thres_alert,thres_drowsy)
+        _, grad_acc = train_model(model, train_dl, val_dl, thres, cfg, save_path['model_dir'])
 
         all_grad_dict[cfg['ts_sub']] = grad_acc["all"]
         alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
@@ -309,34 +274,36 @@ def train_cross_subject(cfg):
 
         ''' Testing '''
         for idx in range(len(data[sub_list[ts_sub_idx]])):
+            ### get testing data from testing subject
             test_data = np.array(data[sub_list[ts_sub_idx]][idx], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
             test_truth = truth[sub_list[ts_sub_idx]][idx].astype('float32') # (#testing trial, )
             ts_session_bound = np.tile([0, test_data.shape[0]-1], (test_data.shape[0], 1))
             ts_onset_time = onset_time[sub_list[ts_sub_idx]][idx]
 
-
+            ### Inference
             test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
-            pred = test_model(model, test_dl, device)
+            pred = test_model(model, test_dl, cfg)
             output = [tensor.detach().cpu().item() for tensor in pred[0]]
             
             rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
             cc = np.corrcoef(test_truth.reshape(-1), output)
         
-            plot_result(output, test_truth.reshape(-1), ts_onset_time, cfg, idx)
-            with open(cfg['log_file'], 'a') as f:
+            plot_result(output, test_truth.reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
+            with open(save_path['log_file'], 'a') as f:
                 f.writelines('%s\t%.3f\t%.3f\n'%(f"{cfg['ts_sub']}-{idx+1}", rmse, cc[0,1]))
 
         del train_data, train_truth, test_data, test_truth,  val_data, val_truth
         del train_dl, test_dl, val_dl
-    
-    with open(f'gradient/drowsy_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
-        pickle.dump(drowsy_grad_dict, f)
 
-    with open(f'gradient/alert_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
-        pickle.dump(alert_grad_dict, f)
-        
-    with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
-        pickle.dump(all_grad_dict, f)
+    if cfg['saliency_map']:
+        with open(f'gradient/drowsy_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+            pickle.dump(drowsy_grad_dict, f)
+
+        with open(f'gradient/alert_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+            pickle.dump(alert_grad_dict, f)
+            
+        with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
+            pickle.dump(all_grad_dict, f)
 
 
 def test_cross_subject(cfg):
