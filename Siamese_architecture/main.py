@@ -5,7 +5,7 @@ from utils import read_json
 from training_scheme import train_within_subject, train_cross_subject
 from training_scheme import test_within_subject, test_cross_subject, model_fusion
 
-REPEAT = 5
+REPEAT = 1
     
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -18,7 +18,7 @@ def main():
     cfg = read_json(args.config_path)
     cfg['device'] = args.device
     cfg['scenario'] = args.scenario
-    cfg['saliency_map'] = False
+    cfg['saliency_map'] = True
     
     data_dir = '/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/'
     model_dir = f'/home/cecnl/ljchang/CECNL/sustained-attention/model/siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
@@ -52,7 +52,7 @@ def main():
 
     elif args.mode == "inference":
         if args.scenario == 'within_subject':
-            test_within_subject(cfg)
+            test_within_subject(cfg, save_path)
         elif args.scenario == 'cross_subject':
             test_cross_subject(cfg)
         else:

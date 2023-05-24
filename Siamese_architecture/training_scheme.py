@@ -5,11 +5,10 @@ import numpy as np
 from sklearn.metrics import mean_squared_error
 from math import sqrt
 import os
-from pathlib import Path
-import argparse
 import pickle
 
-from utils import create_multi_window_input, plot_result, train_model, test_model
+from utils import create_multi_window_input, plot_result
+from train_test import train_model, test_model
 from models import Siamese_CNN
 from DataLoader import dataloader
 
@@ -99,6 +98,7 @@ def test_within_subject(cfg, save_path):
         cfg["ts_sub"] = filename[:-4]
         test_data = np.array(test_data, dtype=np.float32)
         test_truth = test_truth.astype('float32')
+        ts_session_bound = np.tile([0, test_data.shape[0] - 1], (test_data.shape[0], 1))
         print("data size: ", test_data.shape)
         print("truth shape: ", test_truth.shape)
 
@@ -112,8 +112,8 @@ def test_within_subject(cfg, save_path):
                 model = Siamese_CNN(**cfg).to(cfg['device'])
                 model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
                 print(model_path)
-                pred = test_model(model, test_dl, cfg)
-                pred_set.append(pred[0])
+                pred = test_model(model, test_dl, cfg['device'])
+                pred_set.append(pred)
       
         pred_set = torch.cat(pred_set, 1)
         print(pred_set.size())
@@ -128,6 +128,9 @@ def test_within_subject(cfg, save_path):
         plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, save_path['fig_dir'], cfg)
         with open(save_path['log_file'], 'a') as f:
             f.writelines('%s\t%.3f\t%.3f\n'%(filename[:-4], rmse, cc[0,1]))
+
+        with open(f'decoding_result/{cfg["ts_sub"]}.npy', 'wb') as f:
+            np.save(f, np.array(output))
 
 def model_fusion(cfg):
 
@@ -282,8 +285,8 @@ def train_cross_subject(cfg, save_path):
 
             ### Inference
             test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
-            pred = test_model(model, test_dl, cfg)
-            output = [tensor.detach().cpu().item() for tensor in pred[0]]
+            pred = test_model(model, test_dl, cfg['device'])
+            output = [tensor.detach().cpu().item() for tensor in pred]
             
             rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
             cc = np.corrcoef(test_truth.reshape(-1), output)
@@ -306,45 +309,46 @@ def train_cross_subject(cfg, save_path):
             pickle.dump(all_grad_dict, f)
 
 
-def test_cross_subject(cfg):
+def test_cross_subject(cfg, save_path):
 
-    device = cfg['device']
-    filelist = sorted(os.listdir(cfg['data_dir']))
+    filelist = sorted(os.listdir(save_path['data_dir']))
 
     # Load all data
-    sub_list = []
-    data = {}
-    truth = {}
-    onset_time = {}
-    low_bound = 0
-    print("Loading data...")
     for filename in filelist:
-        if filename.endswith('.mat'):
-            single_train_data, single_train_truth, _, single_onset_time, low_bound = create_multi_window_input(filename, low_bound, cfg)
-            if(filename[:3] not in sub_list):
-                sub_list.append(filename[:3])
-                data[filename[:3]] = []
-                truth[filename[:3]] = []
-                onset_time[filename[:3]] = []
-
-            data[filename[:3]].append(single_train_data)
-            truth[filename[:3]].append(single_train_truth)
-            onset_time[filename[:3]].append(single_onset_time)
-
-    for idx in range(len(data[sub_list[ts_sub_idx]])):
-        test_data = np.array(data[sub_list[ts_sub_idx]][idx], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
-        test_truth = truth[sub_list[ts_sub_idx]][idx].astype('float32') # (#testing trial, )
-        ts_session_bound = np.tile([0, test_data.shape[0]-1], (1, test_data.shape[0]))
-        ts_onset_time = onset_time[sub_list[ts_sub_idx]][idx]
-
-
-        test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
-        pred = test_model(model, test_dl, device)
-        output = [tensor.detach().cpu().item() for tensor in pred[0]]
+        if not filename.endswith('.mat'):
+            continue
         
-        rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
-        cc = np.corrcoef(test_truth.reshape(-1), output)
-    
-        plot_result(output, test_truth.reshape(-1), ts_onset_time, cfg, idx)
-        with open(cfg['log_file'], 'a') as f:
-            f.writelines('%s\t%.3f\t%.3f\n'%(f"{cfg['ts_sub']}-{idx+1}", rmse, cc[0,1]))
+        file_path = save_path['data_dir'] + filename
+        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
+            
+        if(filename[:3] not in sub_list):
+            sub_list.append(filename[:3])
+            data[filename[:3]] = []
+            truth[filename[:3]] = []
+            onset_time[filename[:3]] = []
+
+        data[filename[:3]].append(single_train_data)
+        truth[filename[:3]].append(single_train_truth)
+        onset_time[filename[:3]].append(single_onset_time)
+
+    for ts_sub_idx in range(len(sub_list)):
+        for idx in range(len(data[sub_list[ts_sub_idx]])):
+
+            test_data = np.array(data[sub_list[ts_sub_idx]][idx], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
+            test_truth = truth[sub_list[ts_sub_idx]][idx].astype('float32') # (#testing trial, )
+            ts_session_bound = np.tile([0, test_data.shape[0]-1], (1, test_data.shape[0]))
+            ts_onset_time = onset_time[sub_list[ts_sub_idx]][idx]
+            test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
+
+            model = Siamese_CNN(**cfg).to(cfg['device'])
+            model_path = ts_sub_idx + '_model.pt'
+            model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
+            pred = test_model(model, test_dl, cfg['device'])
+            output = [tensor.detach().cpu().item() for tensor in pred]
+            
+            rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
+            cc = np.corrcoef(test_truth.reshape(-1), output)
+        
+            plot_result(output, test_truth.reshape(-1), ts_onset_time, cfg, idx)
+            with open(cfg['log_file'], 'a') as f:
+                f.writelines('%s\t%.3f\t%.3f\n'%(f"{cfg['ts_sub']}-{idx+1}", rmse, cc[0,1]))

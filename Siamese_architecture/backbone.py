@@ -127,15 +127,15 @@ class EEGNet(nn.Module):
             nn.BatchNorm2d(self.F1)
         )
         self.depthwiseConv = nn.Sequential(
-            nn.Conv2d(in_channels=self.F1, out_channels=self.F2, kernel_size=(EEG_ch, 1), stride=(1,1), groups=16, bias=False),
-            nn.BatchNorm2d(self.F2),
+            nn.Conv2d(in_channels=self.F1, out_channels=self.FN, kernel_size=(EEG_ch, 1), stride=(1,1), groups=16, bias=False),
+            nn.BatchNorm2d(self.FN),
             self.activation,
             nn.AvgPool2d((1,4), stride=(1,4), padding=0),
             nn.Dropout(0.25)
         )
         self.separableConv = nn.Sequential(
-            nn.Conv2d(in_channels=self.F2, out_channels=self.F2, kernel_size=(1, 31), stride=(1,1), padding = (0,15), bias=False),
-            nn.BatchNorm2d(self.F2),
+            nn.Conv2d(in_channels=self.FN, out_channels=self.FN, kernel_size=(1, 31), stride=(1,1), padding = (0,15), bias=False),
+            nn.BatchNorm2d(self.FN),
             self.activation,
             nn.AvgPool2d((1,187), stride=(1,1), padding=0),
             # nn.AvgPool2d((1,8), stride=(1,8), padding=0),
@@ -162,8 +162,8 @@ class ShallowConvNet(nn.Module):
         self.FN = 40
 
         self.conv1 = nn.Conv2d(1, self.F1, (1, 25), bias=False)
-        self.conv2 = nn.Conv2d(self.F1, self.F2, (EEG_ch, 1), bias=False)
-        self.Bn1   = nn.BatchNorm2d(self.F2)
+        self.conv2 = nn.Conv2d(self.F1, self.FN, (EEG_ch, 1), bias=False)
+        self.Bn1   = nn.BatchNorm2d(self.FN)
 
         self.AvgPool1 = nn.AvgPool2d((1, 726), stride=(1, 1))
     
@@ -340,7 +340,7 @@ class EEGBlock4EEGTCN(nn.Module):
             nn.BatchNorm2d(self.F1)
         )
 
-        self.depwise = nn.Conv2d(self.F1, self.D*self.F1, (cfg["EEG_ch"], 1), padding='valid', groups=self.F1, bias=False)
+        self.depwise = nn.Conv2d(self.F1, self.D*self.F1, (EEG_ch, 1), padding='valid', groups=self.F1, bias=False)
 
         self.conv2 = nn.Sequential(
             nn.BatchNorm2d(self.D*self.F1),

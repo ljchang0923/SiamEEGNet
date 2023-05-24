@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torchsummary import summary
 from backbone import SCCNet, EEGNet, ShallowConvNet, EEGTCNet, MBEEGSE, InterpretableCNN, ESTCNN
 
 def backbone_selector(model):
@@ -88,7 +89,7 @@ class Siamese_CNN(nn.Module):
             
         ### Concatenate and Regression head
         x_delta = torch.cat((b_latent, latent), 2)
-        # x_delta = torch.sub(latent, b_latent)
+
         x_delta = torch.flatten(x_delta, 1)
         output_delta = self.delta_regressor(x_delta)
         output_delta = self.tanh(output_delta)
