@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse
 from utils import read_json
 from training_scheme import train_within_subject, train_cross_subject
-from training_scheme import test_within_subject, test_cross_subject, model_fusion
+from training_scheme import test_within_subject, test_cross_subject
 
 REPEAT = 1
     
@@ -18,48 +18,55 @@ def main():
     cfg = read_json(args.config_path)
     cfg['device'] = args.device
     cfg['scenario'] = args.scenario
-    cfg['saliency_map'] = True
-    
-    data_dir = '/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/'
-    model_dir = f'/home/cecnl/ljchang/CECNL/sustained-attention/model/siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
-    log_file = f'log/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch'
-    fig_dir = f'fig/fig_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
+    cfg['saliency_map'] = False
 
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
+    save_path = {
+        'data_dir':'/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/',
+        'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/',
+        'log_file':f'log/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch.csv',
+        'fig_dir':f'fig/fig_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
+    }
 
-    if not os.path.exists(fig_dir):
-        os.makedirs(fig_dir)
+    if not os.path.exists(save_path['fig_dir']):
+        os.makedirs(save_path['fig_dir'])
 
-    save_path ={
-                "data_dir": data_dir,
-                "model_dir": model_dir,
-                "fig_dir": fig_dir,
-                "log_file": log_file
-                }
+    if not os.path.exists(save_path['model_dir']):
+        os.makedirs(save_path['model_dir'])
+
 
     print("Backbone: ", cfg["backbone"])
+    total_record = []
     if args.mode == "train":
-        if args.scenario == 'cross_subject':
-            for i in range(REPEAT):
-                train_cross_subject(cfg, save_path)
-        elif args.scenario == 'within_subject':
-            for i in range(REPEAT):
+        for i in range(REPEAT):
+            if args.scenario == 'cross_subject':
+                record = train_cross_subject(cfg, save_path)
+                record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+                total_record.append(record)
+            elif args.scenario == 'within_subject':
                 train_within_subject(cfg, save_path)
-                test_within_subject(cfg, save_path)
-        else:
-            raise ValueError('Invalid scenario')
+                record = test_within_subject(cfg, save_path)
+                record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+                total_record.append(record)
+            else:
+                raise ValueError('Invalid scenario')
 
     elif args.mode == "inference":
         if args.scenario == 'within_subject':
-            test_within_subject(cfg, save_path)
+            record = test_within_subject(cfg, save_path)
+            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+            total_record.append(record)
         elif args.scenario == 'cross_subject':
-            test_cross_subject(cfg)
+            record = test_cross_subject(cfg)
+            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+            total_record.append(record)
         else:
             raise ValueError('Invalid scenario')
 
     else:
         raise ValueError('Invalid mode')
+
+    total_record = np.concatenate(total_record, axis=1)
+    np.savetxt(save_path['log_file'], total_record, delimiter='\t', fmt='%.3f')
 
 
 if __name__ == "__main__":

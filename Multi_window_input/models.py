@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from backbone import SCCNet, EEGNet, ShallowConvNet, EEGTCNet, MBEEGSE
+from backbone import SCCNet, EEGNet, ShallowConvNet, EEGTCNet, MBEEGSE, InterpretableCNN, ESTCNN
 
-def selector(model):
+def backbone_selector(model):
     if model == "SCCNet":
         return SCCNet
     elif model == "EEGNet":
@@ -13,47 +13,42 @@ def selector(model):
         return EEGTCNet
     elif model == "MBEEGSE":
         return MBEEGSE
+    elif model == "InterpretableCNN":
+        return InterpretableCNN
+    elif model == "ESTCNN":
+        return ESTCNN
     else:
         raise ValueError("Undefined model")
 
-class predictor(nn.Module):
-    def __init__(self, fc2):
-        super(predictor, self).__init__()
-
-        self.regressor = nn.Sequential(
-            # nn.Linear(fc1, fc2),
-            # nn.ReLU(),
-            nn.Linear(fc2, 1, bias = True)
-            # nn.Sigmoid()
-        )
-    def forward(self, x):
-        return self.regressor(x)
-
 class Multi_window_input(nn.Module):    
-    def __init__(self, cfg):
+    def __init__(self, num_window=10, classes=1, **kwargs):
         super(Multi_window_input, self).__init__()
 
-        eegmodel = selector(cfg["backbone"])      
-        self.feat_extractor = eegmodel(cfg)
+        # Select backbone networks
+        eegmodel = backbone_selector(kwargs["backbone"])      
+        self.feat_extractor = eegmodel(**kwargs)
         
+        # Obtain feature dimension
         self.dim_latent = self.feat_extractor.FN
-        self.sm_num = cfg["num_window"]
 
-        self.GAP = nn.AvgPool2d((1,self.sm_num))
-        self.regressor = predictor(self.dim_latent)
+        # For smoothing features
+        self.GAP = nn.AvgPool2d((1, num_window))
+        self.regressor = nn.Linear(self.dim_latent, classes, bias = True)
         self.sigmoid = nn.Sigmoid()
         
 
     def forward(self, x):
+        # obtain the corresponding latent feature from multiple inputs
         latent = [] 
-        for j in range(0, self.sm_num):
+        for j in range(0, x.size()[1]):
             t, _ = self.feat_extractor(x[:,j,:,:].unsqueeze(1))
             latent.append(t)
 
-        # print('size after concate: ', x.size())
+        # Smooth the features
         latent = torch.cat(latent, 3)
         latent = self.GAP(latent)
 
+        # Regression
         x = torch.flatten(latent, 1)
         output = self.regressor(x)
         output = self.sigmoid(output)
@@ -63,20 +58,16 @@ class Multi_window_input(nn.Module):
 
 
 class Siamese_CNN(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, num_window=10, classes=1,  **kwargs):
         super(Siamese_CNN, self).__init__()
 
-        self.sm_num = cfg['num_window']
-
-       
-        self.backbone = Multi_window_input(cfg)
+        self.num_win = num_window
+        self.backbone = Multi_window_input(num_window, **kwargs)
         self.dim_latent = self.backbone.feat_extractor.FN
-        self.GAP = nn.AvgPool2d((1,self.sm_num))
+        self.GAP = nn.AvgPool2d((1, num_window))
 
-        self.regressor = predictor(self.dim_latent) ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
-        self.delta_regressor = nn.Sequential(
-            nn.Linear(self.dim_latent*2, 1, bias = True)
-        )
+         ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
+        self.delta_regressor = nn.Linear(self.dim_latent*2, classes, bias = True)
         
         ## Activation
         self.sigmoid = nn.Sigmoid()
@@ -84,30 +75,17 @@ class Siamese_CNN(nn.Module):
         
     def forward(self, x):
         ### Sub-network 1
-        # latent = []
-        # for j in range(self.sm_num, x.size()[1]):
-        #     t, _ = self.feat_extractor(x[:,j,:,:].unsqueeze(1))
-        #     latent.append(t)
-        
-        # ### DI of the current input trial   
-        # latent = torch.cat(latent, 3)
-        # # print("latent size: ", latent.size())
-        # latent = self.GAP(latent)
-        # x_di = torch.flatten(latent, 1)
-        # x_di = self.regressor(x_di)
-        # output_di = self.sigmoid(x_di)
-        latent, output_di = self.backbone(x[:, self.sm_num:x.size()[1], :, :])
+        if(len(x.size()) == 5):
+            latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :, :])
+        else:
+            latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :])
         
         ### Sub-network 2 (baseline)
         with torch.no_grad():
-            # b_latent = []
-            # for i in range(0,self.sm_num):
-            #     b, _ = self.feat_extractor(x[:,i,:,:].unsqueeze(1))
-            #     b_latent.append(b)
-
-            # b_latent = torch.cat(b_latent,3)
-            # b_latent = self.GAP(b_latent)
-            b_latent, _ = self.backbone(x[:, :self.sm_num, :, :])
+            if len(x.size()) == 5:
+                b_latent, _ = self.backbone(x[:, :self.num_win, :, :, :])
+            else: 
+                b_latent, _ = self.backbone(x[:, :self.num_win, :, :])
             
         ### Concatenate and Regression head
         x_delta = torch.cat((b_latent, latent), 2)

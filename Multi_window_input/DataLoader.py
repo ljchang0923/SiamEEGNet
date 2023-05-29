@@ -5,7 +5,7 @@ from torch.utils.data import TensorDataset, DataLoader, Dataset
 import random
 
 
-def dataloader(data, truth, session, mode, cfg):
+def dataloader(data, truth, mode, cfg):
 
     x = np2TT(data)
     y = np2TT(truth).unsqueeze(1)

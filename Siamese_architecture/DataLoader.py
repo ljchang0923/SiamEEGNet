@@ -3,7 +3,6 @@ import torch
 from torch import from_numpy as np2TT
 from torch.utils.data import TensorDataset, DataLoader, Dataset
 import random
-import scipy.signal as signal
 
 
 def dataloader(data, truth, session, mode, cfg):
@@ -47,8 +46,7 @@ class Pair_Dataloader(Dataset):
     def __getitem__(self, index):
         x = self.data[index]
         y = self.truth[index].view(1, 1)
-        # print(x.size())
-        # print(y.device)
+
         if self.mode=='train':
             population = range(self.session[index][0], self.session[index][1])
             sample_idx = random.sample(population, self.pairing)

@@ -87,6 +87,7 @@ def train_within_subject(cfg, save_path):
 def test_within_subject(cfg, save_path):
     filelist = sorted(os.listdir(save_path['data_dir']))
 
+    record = []
     for filename in filelist:
         if not filename.endswith('.mat'):
             continue
@@ -126,11 +127,12 @@ def test_within_subject(cfg, save_path):
         print('RMSE: ', rmse, ' CC:', cc[0,1])
         
         plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, save_path['fig_dir'], cfg)
-        with open(save_path['log_file'], 'a') as f:
-            f.writelines('%s\t%.3f\t%.3f\n'%(filename[:-4], rmse, cc[0,1]))
+        record.append([rmse, cc[0,1]])
 
         with open(f'decoding_result/{cfg["ts_sub"]}.npy', 'wb') as f:
             np.save(f, np.array(output))
+
+    return record
 
 def model_fusion(cfg):
 
@@ -218,7 +220,7 @@ def train_cross_subject(cfg, save_path):
         onset_time[filename[:3]].append(single_onset_time)
 
     # train the model for all subject iteratively
-
+    record = []
     for ts_sub_idx in range(len(sub_list)):
         # testing data 
         cfg['ts_sub'] = sub_list[ts_sub_idx]
@@ -292,8 +294,8 @@ def train_cross_subject(cfg, save_path):
             cc = np.corrcoef(test_truth.reshape(-1), output)
         
             plot_result(output, test_truth.reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
-            with open(save_path['log_file'], 'a') as f:
-                f.writelines('%s\t%.3f\t%.3f\n'%(f"{cfg['ts_sub']}-{idx+1}", rmse, cc[0,1]))
+            
+            record.append([rmse, cc[0, 1]])
 
         del train_data, train_truth, test_data, test_truth,  val_data, val_truth
         del train_dl, test_dl, val_dl
@@ -307,6 +309,8 @@ def train_cross_subject(cfg, save_path):
             
         with open(f'gradient/all_grad_{cfg["backbone"]}_{cfg["scenario"]}.pkl', 'wb') as f:
             pickle.dump(all_grad_dict, f)
+
+    return record
 
 
 def test_cross_subject(cfg, save_path):
@@ -331,6 +335,7 @@ def test_cross_subject(cfg, save_path):
         truth[filename[:3]].append(single_train_truth)
         onset_time[filename[:3]].append(single_onset_time)
 
+    record = []
     for ts_sub_idx in range(len(sub_list)):
         for idx in range(len(data[sub_list[ts_sub_idx]])):
 
@@ -350,5 +355,6 @@ def test_cross_subject(cfg, save_path):
             cc = np.corrcoef(test_truth.reshape(-1), output)
         
             plot_result(output, test_truth.reshape(-1), ts_onset_time, cfg, idx)
-            with open(cfg['log_file'], 'a') as f:
-                f.writelines('%s\t%.3f\t%.3f\n'%(f"{cfg['ts_sub']}-{idx+1}", rmse, cc[0,1]))
+            record.append([rmse, cc[0,1]])
+
+    return record

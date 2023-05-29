@@ -1,5 +1,4 @@
 """# Import libary and set random seed and gup """
-import time
 import torch
 import numpy as np
 from sklearn.metrics import mean_squared_error
@@ -7,10 +6,13 @@ from sklearn.model_selection import train_test_split
 from math import sqrt
 import os
 import argparse
+import csv
 
 from DataLoader import dataloader
 from utils import read_json, plot_result, create_multi_window_input, train_model, test_model
 from models import Multi_window_input
+
+REPEAT = 5
 
 def train_within_subject(cfg, save_path):
     filelist = sorted(os.listdir(save_path['data_dir']))
@@ -55,8 +57,8 @@ def train_within_subject(cfg, save_path):
 
             x_train, x_val, y_train, y_val = train_test_split(train_data, train_truth, test_size=0.3, shuffle=True)
 
-            train_dl = dataloader(x_train, y_train, 0, 'train', cfg)
-            val_dl = dataloader(x_val, y_val, 0, 'test', cfg)
+            train_dl = dataloader(x_train, y_train, 'train', cfg)
+            val_dl = dataloader(x_val, y_val, 'test', cfg)
 
             print("Train size: ", x_train.shape)
             print("Val size: ", x_val.shape)
@@ -70,13 +72,13 @@ def train_within_subject(cfg, save_path):
 
 def test_within_subject(cfg, save_path):
     filelist = sorted(os.listdir(save_path['data_dir']))
-
+    record = []
     for filename in filelist:
         if not filename.endswith('.mat'):
             continue
 
         file_path = save_path['data_dir'] + filename
-        test_data, test_truth, onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
+        test_data, test_truth, onset_time = create_multi_window_input(file_path,    cfg['num_window'], cfg['EEG_ch'])
 
         baseline_idx = 0    
         cfg["ts_sub"] = filename[:-4]
@@ -87,18 +89,18 @@ def test_within_subject(cfg, save_path):
         print("data size: ", test_data.shape)
         print("truth shape: ", test_truth.shape)
 
-        test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
+        test_dl = dataloader(test_data, test_truth, 'test', cfg)
 
         print("testing session: ", filename[:-4])
         pred_set = []
         for name in filelist:
-            if name.endswith('.mat') and name != filename and name[:4] == filename[:4]:
+            if name.endswith('.mat') and name != filename and name[:3] == filename[:3]:
                 model_path = name[:-4] +'_model.pt'
+                print("inference model: ", model_path)
                 model = Multi_window_input(**cfg).to(cfg['device'])
                 model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
-                print(model_path)
                 pred = test_model(model, test_dl, cfg['device'])
-                pred_set.append(pred[0])
+                pred_set.append(pred)
       
         pred_set = torch.cat(pred_set, 1)
         print(pred_set.size())
@@ -111,8 +113,11 @@ def test_within_subject(cfg, save_path):
         print('RMSE: ', rmse, ' CC:', cc[0,1])
         
         plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, save_path['fig_dir'], cfg)
-        with open(save_path['log_file'], 'a') as f:
-            f.writelines('%s\t%.3f\t%.3f\n'%(filename[:-4], rmse, cc[0,1]))
+        record.append([rmse, cc[0,1]])
+        
+        # with open(f'decoding_result/{cfg["ts_sub"]}.npy', 'wb') as f:
+        #     np.save(f, np.array(output))
+    return np.array(record)
 
 def model_selection():
     device = get_device()
@@ -167,6 +172,7 @@ def train_cross_subject(cfg, save_path):
         onset_time[filename[:3]].append(single_onset_time)
 
     # train the model for all subject iteratively
+    record = []
     for ts_sub_idx in range(len(sub_list)):
         # testing data 
         cfg['ts_sub'] = sub_list[ts_sub_idx]
@@ -213,18 +219,64 @@ def train_cross_subject(cfg, save_path):
             ts_onset_time = onset_time[sub_list[ts_sub_idx]][idx]
 
             test_dl = dataloader(test_data, test_truth, 'test', cfg)
-            pred = test_model(model, test_dl, device)
-            output = [tensor.detach().cpu().item() for tensor in pred[0]]
+            pred = test_model(model, test_dl, cfg['device'])
+            output = [tensor.detach().cpu().item() for tensor in pred]
             
             rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
             cc = np.corrcoef(test_truth.reshape(-1), output)
-        
+            record.append([rmse, cc[0,1]])
             plot_result(output, test_truth.reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
-            with open(save_path['log_file'], 'a') as f:
-                f.writelines('%s\t%.3f\t%.3f\n'%(f"{cfg['ts_sub']}-{idx+1}", rmse, cc[0,1]))
 
         del train_data, train_truth, test_data, test_truth,  val_data, val_truth
         del train_dl, test_dl, val_dl
+
+    return np.array(record)
+
+def test_cross_subject(cfg, save_path):
+
+    filelist = sorted(os.listdir(save_path['data_dir']))
+
+    # Load all data
+    for filename in filelist:
+        if not filename.endswith('.mat'):
+            continue
+        
+        file_path = save_path['data_dir'] + filename
+        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
+            
+        if(filename[:3] not in sub_list):
+            sub_list.append(filename[:3])
+            data[filename[:3]] = []
+            truth[filename[:3]] = []
+            onset_time[filename[:3]] = []
+
+        data[filename[:3]].append(single_train_data)
+        truth[filename[:3]].append(single_train_truth)
+        onset_time[filename[:3]].append(single_onset_time)
+
+    record = []
+    for ts_sub_idx in range(len(sub_list)):
+        for idx in range(len(data[sub_list[ts_sub_idx]])):
+
+            test_data = np.array(data[sub_list[ts_sub_idx]][idx], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
+            test_truth = truth[sub_list[ts_sub_idx]][idx].astype('float32') # (#testing trial, )
+            ts_session_bound = np.tile([0, test_data.shape[0]-1], (1, test_data.shape[0]))
+            ts_onset_time = onset_time[sub_list[ts_sub_idx]][idx]
+            test_dl = dataloader(test_data, test_truth, 'test', cfg)
+
+            model = Multi_window_input(**cfg).to(cfg['device'])
+            model_path = ts_sub_idx +'_model.pt'
+            model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
+            _, pred = test_model(model, test_dl, cfg['device'])
+            output = [tensor.detach().cpu().item() for tensor in pred]
+            
+            rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
+            cc = np.corrcoef(test_truth.reshape(-1), output)
+            record.append([rmse, cc[0,1]])
+        
+            plot_result(output, test_truth.reshape(-1), ts_onset_time, cfg, idx)
+
+    return np.array(record)
 
 if __name__ == "__main__":
     
@@ -232,38 +284,52 @@ if __name__ == "__main__":
     parser.add_argument("--config_path", type=str, help="path to configuration file", default='config/config.json')
     parser.add_argument("--scenario", type=str, help="within_subject or cross_subject", default="cross_subject")
     parser.add_argument("--device", type=str, default = 'cuda:0')
+    parser.add_argument("--mode", type=str, default='train')
     args = parser.parse_args()
 
     cfg = read_json(args.config_path)
     cfg['device'] = args.device
     cfg['scenario'] = args.scenario
 
-    data_dir = '/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/'
-    model_dir = f'/home/cecnl/ljchang/CECNL/sustained-attention/model/siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
-    log_file = f'log/multi_window_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["scenario"]}_{cfg["EEG_ch"]}ch'
-    fig_dir = f'fig/multi_window_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
+    save_path = {
+        'data_dir':'/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/',
+        'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/multi_window_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/',
+        'log_file':f'log/Baseline_method/{cfg["scenario"]}/multi_window_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["EEG_ch"]}ch.csv',
+        'fig_dir':f'fig/multi_window_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
+    }
     
-    if not os.path.exists(fig_dir):
-        os.makedirs(fig_dir)
+    if not os.path.exists(save_path['fig_dir']):
+        os.makedirs(save_path['fig_dir'])
 
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
+    if not os.path.exists(save_path['model_dir']):
+        os.makedirs(save_path['model_dir'])
 
-    save_path ={
-                "data_dir": data_dir,
-                "model_dir": model_dir,
-                "fig_dir": fig_dir,
-                "log_file": log_file
-                }
 
     print(f'Backbone: {cfg["backbone"]}')
+    total_record = []
+    if args.mode == 'train':
+        for i in range(REPEAT):
+            if args.scenario == 'cross_subject':
+                record = train_cross_subject(cfg, save_path)
+                record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+                total_record.append(record)
+            elif args.scenario == 'within_subject':
+                train_within_subject(cfg, save_path)
+                record = test_within_subject(cfg, save_path)
+                record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+                total_record.append(record)
+            else:
+                raise ValueError('Invalid scenario')
+    elif args.mode == 'inference':
+        if args.scenario == 'within_subject':
+            trecord = est_within_subject(cfg, save_path)
+            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+            total_record.append(record)
+        elif args.scenario == 'cross_subject':
+            record = test_cross_subject(cfg, save_path)
+            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+            total_record.append(record)
 
-    if args.scenario == 'cross_subject':
-        for i in range(5):
-            train_cross_subject(cfg, save_path)
-    elif args.scenario == 'within_subject':
-        for i in range(5):
-            train_within_subject(cfg, save_path)
-            test_within_subject(cfg, save_path)
-    else:
-        raise ValueError('Invalid scenario')
+
+    total_record = np.concatenate(total_record, axis=1)
+    np.savetxt(save_path['log_file'], total_record, delimiter='\t', fmt='%.3f')

@@ -30,7 +30,7 @@ def train_model(model, train_dl, test_dl, cfg, save_path):
     optimizer = getattr(optim, cfg['optimizer'])(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
     criterion = nn.MSELoss(reduction='mean')
     #lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.99)
-    record = {'train loss': [], 'val loss':[]}
+    record = {'train loss': [], 'val loss':[], 'val cc':[]}
     total_loss = 0
     mini = 1e8
     best_rmse = 0
@@ -59,6 +59,7 @@ def train_model(model, train_dl, test_dl, cfg, save_path):
             val_loss, rmse, cc = val_model(model, test_dl, cfg['device'])
             record["train loss"].append(total_loss/len(train_dl))
             record["val loss"].append(val_loss)
+            record["val cc"].append(cc)
 
             print(f"val loss-> {val_loss} rmse -> {rmse} cc -> {cc}")
             matrice = 0.5 * rmse + 0.5*(1-cc)
@@ -91,16 +92,14 @@ def val_model(model, test_dl, device):
     return mse, rmse, cc[0,1] 
 
 def test_model(model, test_dl, device):
+    
     model.eval()
-    output = []
-
     with torch.no_grad():
         for x_test, y_test in test_dl:
             x_test, y_test = x_test.to(device), y_test.to(device)
             _, di = model(x_test)
-            output.append(di)
             
-    return output
+    return di
 
 
 def single_trial_input(data_path, filename):
@@ -152,11 +151,14 @@ def plot_result(output, test_truth, time_point, fig_dir, cfg, idx = None):
     plt.rc('legend', fontsize=10)
     plt.rc('axes', labelsize=12)
     hfont = {'fontname':'Helvetica'}
-    plt.plot(time_point/60, np.abs(output), 'r', linewidth=0.8, alpha=0.8)
+    plt.plot(time_point/60, output, 'r', linewidth=0.8, alpha=0.8)
     plt.plot(time_point/60, test_truth.reshape(-1), 'k', linewidth=0.8)
     plt.xlabel('Time(min)', **hfont)
     plt.ylabel('Delta DI', **hfont)
     plt.legend(['Prediction', 'True delta DI'])
+    plt.xlim([0, time_point[-1]/60])
+    plt.ylim([0, 1])
+    plt.tight_layout()
 
     if idx == None:
         plt.savefig(fig_dir + f'{cfg["ts_sub"]}.png')

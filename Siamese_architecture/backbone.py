@@ -197,11 +197,11 @@ class SCCNet(nn.Module):
         # temporal and spatial filter
         self.Conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F1, kernel_size=(EEG_ch, 1)),
-            nn.BatchNorm2d(self.F1)
+            # nn.BatchNorm2d(self.F1)
         )
         self.Conv_block2 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.FN, kernel_size=(self.F1, self.t1), padding=(0, self.t1//2)),
-            nn.BatchNorm2d(self.FN)
+            # nn.BatchNorm2d(self.FN)
         )
 
         self.AveragePooling1 = nn.AvgPool2d((1, self.t2))

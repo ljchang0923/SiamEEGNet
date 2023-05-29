@@ -46,7 +46,7 @@ class InterpretableCNN(torch.nn.Module):
         return latent, output
 
 class ESTCNN(nn.Module):
-    def __init__(self, n_classes=1, EEG_ch=30, fs=250, batch_norm_alpha=0.1, **kwargs):
+    def __init__(self, classes=1, EEG_ch=30, fs=250, batch_norm_alpha=0.1, **kwargs):
         super(ESTCNN, self).__init__()
         self.batch_norm_alpha = batch_norm_alpha
         self.n_classes = n_classes
@@ -89,7 +89,8 @@ class ESTCNN(nn.Module):
             nn.AvgPool2d(kernel_size=(1, 7), stride=(1, 7)),
         )
         self.convnet.eval()
-        out = self.convnet(torch.zeros(1, 1, EEG_ch, input_time))
+        with torch.no_grad():
+            out = self.convnet(torch.zeros(1, 1, EEG_ch, input_time))
 
         n_out_time = out.cpu().data.numpy().shape[3]
         self.final_conv_length = n_out_time
@@ -101,7 +102,7 @@ class ESTCNN(nn.Module):
                                             )
 
         """ Classifier """
-        self.clf = nn.Sequential(nn.Linear(50, self.n_classes),
+        self.clf = nn.Sequential(nn.Linear(50, self.classes),
                                  nn.Sigmoid()
                                  )
     def forward(self, x):
@@ -113,11 +114,12 @@ class ESTCNN(nn.Module):
         return latent.unsqueeze(2).unsqueeze(3), output
 
 class EEGNet(nn.Module):
-    def __init__(self, EEG_ch=30, **kwargs):
+    def __init__(self, EEG_ch=30, classes=1, **kwargs):
         super(EEGNet, self).__init__()
 
         self.F1 = 16
-        self.FN = 32
+        self.F2 = 32
+        self.FN = self.F2
 
         self.activation = nn.ELU()
 
@@ -141,7 +143,7 @@ class EEGNet(nn.Module):
             nn.Dropout(0.25)
         )
 
-        self.regressor = nn.Linear(self.FN, 1, bias=True)
+        self.regressor = nn.Linear(self.FN, classes, bias=True)
 
     def forward(self, x):
 
@@ -154,7 +156,7 @@ class EEGNet(nn.Module):
         return x, out
 
 class ShallowConvNet(nn.Module):
-    def __init__(self, EEG_ch=30, **kwargs):
+    def __init__(self, EEG_ch=30, classes=1, **kwargs):
         super(ShallowConvNet, self).__init__()
 
         self.F1 = 40
@@ -167,7 +169,7 @@ class ShallowConvNet(nn.Module):
         self.AvgPool1 = nn.AvgPool2d((1, 726), stride=(1, 1))
     
         self.Drop1 = nn.Dropout(0.25)
-        self.regressor = nn.Linear(self.FN, 1, bias=True)
+        self.regressor = nn.Linear(self.FN, classes, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -184,7 +186,7 @@ class ShallowConvNet(nn.Module):
         return log_power ,output
 
 class SCCNet(nn.Module):
-    def __init__(self, EEG_ch=30, fs=250, **kwargs):
+    def __init__(self, EEG_ch=30, fs=250, classes=1, **kwargs):
         super(SCCNet, self).__init__()
 
         # structure parameters
@@ -208,7 +210,7 @@ class SCCNet(nn.Module):
         # stride is set as 25 (0.1 sec correspond to time domain)
         # kernel size 125 mean 0.5 sec
         self.dropout = nn.Dropout(0.5)
-        self.regressor = nn.Linear(self.FN, 1, bias=True)
+        self.regressor = nn.Linear(self.FN, classes, bias=True)
         self.sigmoid = nn.Sigmoid()
 
     def square(self, x): 
@@ -324,7 +326,7 @@ class EEGBlock4EEGTCN(nn.Module):
     """
     First block of the proposed model. (temporal conv. > depth-wise conv. > separable conv.)
     """
-    def __init__(self, EEG_ch=30, F1 = 8, F2 = 16, D = 2, KE = 32, pe = 0.3):
+    def __init__(self, EEG_ch=30, F1 = 8, F2 = 16, D = 2, KE = 62, pe = 0.3):
         super(EEGBlock4EEGTCN, self).__init__()
 
         self.F1 = F1  # number of temporal filters
@@ -365,7 +367,7 @@ class EEGBlock4EEGTCN(nn.Module):
         return x3
 
 class EEGTCNet(nn.Module):
-    def __init__(self, EEG_ch=30, **kwargs):
+    def __init__(self, EEG_ch=30, classes=1, **kwargs):
         super().__init__()
         self.F1 = 8   # number of temporal filters
         self.F2 = 16  # number of pointwise filters
@@ -383,7 +385,7 @@ class EEGTCNet(nn.Module):
         self.AvgPooling = nn.AvgPool2d((1, 23))
         self.flat = nn.Flatten()
         # block3
-        self.classifier = nn.Linear(self.FN, 1, bias=True)
+        self.classifier = nn.Linear(self.FN, classes, bias=True)
 
     def forward(self, x):
         x = self.block1(x)
@@ -458,7 +460,7 @@ class EEGNet_Block(nn.Module):
 
 class MBEEGSE(nn.Module):
 
-    def __init__(self, EEG_ch=30, **kwargs):
+    def __init__(self, EEG_ch=30, classes=1, **kwargs):
         super(MBEEGSE, self).__init__()
 
         self.FN = 12
@@ -505,7 +507,7 @@ class MBEEGSE(nn.Module):
         self.b2_classifier = nn.Linear(368, 4, bias=True)
         self.b3_classifier = nn.Linear(368, 4, bias=True)
 
-        self.classifier = nn.Linear(3*4, 1, bias=True)
+        self.classifier = nn.Linear(3*4, classes, bias=True)
 
     def forward(self, x):
         x1 = self.eegnet1(x)
