@@ -1,5 +1,3 @@
-import time
-import scipy.io
 import torch
 import numpy as np
 from sklearn.metrics import mean_squared_error
@@ -13,40 +11,15 @@ from models import Siamese_CNN
 from DataLoader import dataloader
 
 
-def train_within_subject(cfg, save_path):
+def train_within_subject(cfg, save_path, *dataset):
 
-    filelist = sorted(os.listdir(save_path['data_dir']))
+    sub_list, data, truth, onset_time = dataset
+    drowsy_grad_dict, alert_grad_dict, all_grad_dict = {}, {}, {}
 
-    # Load all data
-    sub_list = {}
-    data = {}
-    truth = {}
-    onset_time = {}
-    print("Loading data...")
-    for filename in filelist:
-        if not filename.endswith('.mat'):
-            continue
+    for sub in sub_list:
+        for train_sess in range(len(data[sub])):
 
-        file_path = save_path['data_dir'] + filename
-        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
-        if(filename[:3] not in sub_list):
-            sub_list[filename[:3]] = []
-            data[filename[:3]] = {}
-            truth[filename[:3]] = {}
-            onset_time[filename[:3]] = {}
-
-        sub_list[filename[:3]].append(filename[:-4])
-        data[filename[:3]][filename[:-4]] = single_train_data
-        truth[filename[:3]][filename[:-4]] = single_train_truth
-        onset_time[filename[:3]][filename[:-4]] = single_onset_time
-
-    drowsy_grad_dict = {}
-    alert_grad_dict = {}
-    all_grad_dict = {}
-    for sub, sess in sub_list.items():
-        for train_sess in sess:
-
-            cfg["ts_sub"] = train_sess
+            cfg["ts_sub"] = f"{sub}-{train_sess+1}"
             train_data = np.array(data[sub][train_sess], dtype=np.float32)
             train_truth = truth[sub][train_sess].astype('float32')
             tr_session_bound = np.tile([0, train_data.shape[0] - 1], (train_data.shape[0], 1))
@@ -58,10 +31,10 @@ def train_within_subject(cfg, save_path):
                     'alert': thres_alert
                     }
 
-            train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
+            train_dl = dataloader(train_data, train_truth, tr_session_bound, 'baseline', cfg)
             val_dl = dataloader(train_data, train_truth, tr_session_bound, 'test', cfg)
 
-            print("Training session: ", train_sess)
+            print(f'Training session: {cfg["ts_sub"]}')
             model = Siamese_CNN(**cfg).to(cfg['device'])
             loss_record, grad_acc = train_model(model, train_dl, val_dl, thres, cfg, save_path['model_dir']) 
 
@@ -84,53 +57,47 @@ def train_within_subject(cfg, save_path):
             pickle.dump(all_grad_dict, f)
 
 
-def test_within_subject(cfg, save_path):
-    filelist = sorted(os.listdir(save_path['data_dir']))
+def test_within_subject(cfg, save_path, *dataset):
+
+    sub_list, data, truth, onset_time = dataset
+    model_list = sorted(os.listdir(save_path['model_dir']))
 
     record = []
-    for filename in filelist:
-        if not filename.endswith('.mat'):
-            continue
+    for sub in sub_list:
+        for test_sess in range(len(data[sub])):
 
-        file_path = save_path['data_dir'] + filename
-        test_data, test_truth, onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
+            baseline_idx = 0    
+            cfg["ts_sub"] = f"{sub}-{test_sess+1}"
+            test_data = np.array(data[sub][test_sess], dtype=np.float32)
+            test_truth = truth[sub][test_sess].astype('float32')
+            ts_session_bound = np.tile([0, test_data.shape[0] - 1], (test_data.shape[0], 1))
+            ts_onset_time = onset_time[sub][test_sess]
+            print("Data size: {} Truth shape: {}".format(test_data.shape, test_truth.shape))
 
-        baseline_idx = 0    
-        cfg["ts_sub"] = filename[:-4]
-        test_data = np.array(test_data, dtype=np.float32)
-        test_truth = test_truth.astype('float32')
-        ts_session_bound = np.tile([0, test_data.shape[0] - 1], (test_data.shape[0], 1))
-        print("data size: ", test_data.shape)
-        print("truth shape: ", test_truth.shape)
+            test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
 
-        test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
+            print("Testing session: {}".format(cfg["ts_sub"]))
+            pred_set = []
+            for model_path in model_list:
+                if model_path[:5] != cfg["ts_sub"] and model_path[:3] == sub:
+                    model = Siamese_CNN(**cfg).to(cfg['device'])
+                    model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
+                    pred = test_model(model, test_dl, cfg['device'])
+                    pred_set.append(pred)
 
-        print("testing session: ", filename[:-4])
-        pred_set = []
-        for name in filelist:
-            if name.endswith('.mat') and name != filename and name[:4] == filename[:4]:
-                model_path = name[:-4] +'_model.pt'
-                model = Siamese_CNN(**cfg).to(cfg['device'])
-                model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
-                print(model_path)
-                pred = test_model(model, test_dl, cfg['device'])
-                pred_set.append(pred)
-      
-        pred_set = torch.cat(pred_set, 1)
-        print(pred_set.size())
-        pred = torch.mean(pred_set, 1)
-        output = [tensor.detach().cpu().item() for tensor in pred]
+            pred_set = torch.cat(pred_set, 1)
+            pred = torch.mean(pred_set, 1)
+            output = [tensor.detach().cpu().item() for tensor in pred]
 
-        rmse = sqrt(mean_squared_error((test_truth-test_truth[baseline_idx]).reshape(-1), output))
-        cc = np.corrcoef((test_truth-test_truth[baseline_idx]).reshape(-1), output)
-        print('test on model ' + model_path)
-        print('RMSE: ', rmse, ' CC:', cc[0,1])
-        
-        plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), onset_time, save_path['fig_dir'], cfg)
-        record.append([rmse, cc[0,1]])
+            rmse = sqrt(mean_squared_error((test_truth-test_truth[baseline_idx]).reshape(-1), output))
+            cc = np.corrcoef((test_truth-test_truth[baseline_idx]).reshape(-1), output)
+            print('RMSE: {} CC: {}'.format(rmse, cc[0,1]))
+            
+            plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), ts_onset_time, save_path['fig_dir'], cfg)
+            record.append([rmse, cc[0,1]])
 
-        with open(f'decoding_result/{cfg["ts_sub"]}.npy', 'wb') as f:
-            np.save(f, np.array(output))
+            # with open(f'decoding_result/{cfg["ts_sub"]}.npy', 'wb') as f:
+            #     np.save(f, np.array(output))
 
     return record
 
@@ -185,42 +152,15 @@ def model_fusion(cfg):
             # with open("model_selection/" + filename[:-4], 'a') as f:
             #     f.writelines('%s\t%.3f\t%.3f\t%f\n'%(name[:-4], rmse, cc[0,1], abs(bs_delta)))
     
-def train_cross_subject(cfg, save_path):
+def train_cross_subject(cfg, save_path, *dataset):
 
-    filelist = sorted(os.listdir(save_path['data_dir']))
-
-    # Load all data
-    sub_list = []
-    data = {}
-    truth = {}
-    onset_time = {}
-    low_bound = 0
+    sub_list, data, truth, onset_time = dataset
 
     # dictionary to store gradient
-    drowsy_grad_dict = {}
-    alert_grad_dict = {}
-    all_grad_dict = {}
-
-    print("Loading data...")
-    for filename in filelist:
-        if not filename.endswith('.mat'):
-            continue
-        
-        file_path = save_path['data_dir'] + filename
-        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
-            
-        if(filename[:3] not in sub_list):
-            sub_list.append(filename[:3])
-            data[filename[:3]] = []
-            truth[filename[:3]] = []
-            onset_time[filename[:3]] = []
-
-        data[filename[:3]].append(single_train_data)
-        truth[filename[:3]].append(single_train_truth)
-        onset_time[filename[:3]].append(single_onset_time)
-
-    # train the model for all subject iteratively
+    drowsy_grad_dict, alert_grad_dict, all_grad_dict = {}, {}, {}
     record = []
+    
+    # train the model for all subject iteratively
     for ts_sub_idx in range(len(sub_list)):
         # testing data 
         cfg['ts_sub'] = sub_list[ts_sub_idx]
@@ -259,7 +199,7 @@ def train_cross_subject(cfg, save_path):
         thres = {
                 'drowsy': thres_drowsy,
                 'alert': thres_alert
-                }
+        }
 
         # wrap up to the Dataloader
         train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
@@ -290,10 +230,10 @@ def train_cross_subject(cfg, save_path):
             pred = test_model(model, test_dl, cfg['device'])
             output = [tensor.detach().cpu().item() for tensor in pred]
             
-            rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
-            cc = np.corrcoef(test_truth.reshape(-1), output)
+            rmse = sqrt(mean_squared_error((test_truth - test_truth[0]).reshape(-1), output))
+            cc = np.corrcoef((test_truth - test_truth[0]).reshape(-1), output)
         
-            plot_result(output, test_truth.reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
+            plot_result(output, (test_truth - test_truth[0]).reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
             
             record.append([rmse, cc[0, 1]])
 
@@ -313,48 +253,31 @@ def train_cross_subject(cfg, save_path):
     return record
 
 
-def test_cross_subject(cfg, save_path):
+def test_cross_subject(cfg, save_path, *dataset):
 
-    filelist = sorted(os.listdir(save_path['data_dir']))
-
-    # Load all data
-    for filename in filelist:
-        if not filename.endswith('.mat'):
-            continue
-        
-        file_path = save_path['data_dir'] + filename
-        single_train_data, single_train_truth, single_onset_time = create_multi_window_input(file_path, cfg['num_window'], cfg['EEG_ch'])
-            
-        if(filename[:3] not in sub_list):
-            sub_list.append(filename[:3])
-            data[filename[:3]] = []
-            truth[filename[:3]] = []
-            onset_time[filename[:3]] = []
-
-        data[filename[:3]].append(single_train_data)
-        truth[filename[:3]].append(single_train_truth)
-        onset_time[filename[:3]].append(single_onset_time)
+    sub_list, data, truth, onset_time = dataset
 
     record = []
     for ts_sub_idx in range(len(sub_list)):
         for idx in range(len(data[sub_list[ts_sub_idx]])):
 
+            cfg['ts_sub'] = sub_list[ts_sub_idx]
             test_data = np.array(data[sub_list[ts_sub_idx]][idx], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
             test_truth = truth[sub_list[ts_sub_idx]][idx].astype('float32') # (#testing trial, )
-            ts_session_bound = np.tile([0, test_data.shape[0]-1], (1, test_data.shape[0]))
+            ts_session_bound = np.tile([0, test_data.shape[0]-1], (test_data.shape[0], 1))
             ts_onset_time = onset_time[sub_list[ts_sub_idx]][idx]
             test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
 
             model = Siamese_CNN(**cfg).to(cfg['device'])
-            model_path = ts_sub_idx + '_model.pt'
+            model_path = sub_list[ts_sub_idx] + '_model.pt'
             model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
             pred = test_model(model, test_dl, cfg['device'])
             output = [tensor.detach().cpu().item() for tensor in pred]
             
-            rmse = sqrt(mean_squared_error(test_truth.reshape(-1), output))
-            cc = np.corrcoef(test_truth.reshape(-1), output)
+            rmse = sqrt(mean_squared_error((test_truth - test_truth[0]).reshape(-1), output))
+            cc = np.corrcoef((test_truth - test_truth[0]).reshape(-1), output)
         
-            plot_result(output, test_truth.reshape(-1), ts_onset_time, cfg, idx)
+            plot_result(output, (test_truth - test_truth[0]).reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
             record.append([rmse, cc[0,1]])
 
     return record

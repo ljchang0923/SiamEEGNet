@@ -45,7 +45,6 @@ class Multi_window_input(nn.Module):
             
             latent.append(t)
 
-        # print('size after concate: ', x.size())
         latent = torch.cat(latent, 3)
         latent = self.GAP(latent)
 
@@ -67,7 +66,7 @@ class Siamese_CNN(nn.Module):
         self.GAP = nn.AvgPool2d((1, num_window))
 
          ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
-        self.delta_regressor = nn.Linear(self.dim_latent*2, 1, bias = True)
+        self.delta_regressor = nn.Linear(self.dim_latent * 2, 1, bias = True)
         
         ## Activation
         self.sigmoid = nn.Sigmoid()
@@ -89,6 +88,7 @@ class Siamese_CNN(nn.Module):
             
         ### Concatenate and Regression head
         x_delta = torch.cat((b_latent, latent), 2)
+        # x_delta = torch.sub(latent, b_latent)
 
         x_delta = torch.flatten(x_delta, 1)
         output_delta = self.delta_regressor(x_delta)

@@ -190,6 +190,7 @@ class SCCNet(nn.Module):
 
         # structure parameters
         self.F1 = 22
+        self.F2 = 20
         self.FN = 20
         self.t1 = fs // 10
         self.t2 = fs * 3
@@ -197,15 +198,15 @@ class SCCNet(nn.Module):
         # temporal and spatial filter
         self.Conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F1, kernel_size=(EEG_ch, 1)),
-            # nn.BatchNorm2d(self.F1)
+            nn.BatchNorm2d(self.F1)
         )
         self.Conv_block2 = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=self.FN, kernel_size=(self.F1, self.t1), padding=(0, self.t1//2)),
-            # nn.BatchNorm2d(self.FN)
+            nn.Conv2d(in_channels=1, out_channels=self.F2, kernel_size=(self.F1, self.t1), padding=(0, self.t1//2)),
+            nn.BatchNorm2d(self.F2)
         )
 
         self.AveragePooling1 = nn.AvgPool2d((1, self.t2))
-        # self.AveragePooling1 = nn.AvgPool2d((1,125), stride = (1,25))
+        # self.AveragePooling1 = nn.AvgPool2d((1, fs), stride = (1, fs))
         # stride is set as 25 (0.1 sec correspond to time domain)
         # kernel size 125 mean 0.5 sec
         self.dropout = nn.Dropout(0.5)
@@ -213,7 +214,7 @@ class SCCNet(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def square(self, x): 
-        return torch.pow(x,2)
+        return torch.pow(x, 2)
 
     def log_activation(self, x):
         return torch.log(x)
@@ -226,7 +227,7 @@ class SCCNet(nn.Module):
         x = self.square(x)
         x = self.dropout(x)
 
-        x = x.permute(0,2,1,3)
+        # x = x.permute(0,2,1,3)
         x = self.AveragePooling1(x)
         latent = self.log_activation(x)
    
@@ -533,7 +534,6 @@ class MBEEGSE(nn.Module):
 ### MBEEGSE ###
 
 ### FBCNet ###
-
 class swish(nn.Module):
     '''
     The swish layer: implements the swish activation function

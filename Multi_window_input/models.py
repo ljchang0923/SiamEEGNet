@@ -75,17 +75,12 @@ class Siamese_CNN(nn.Module):
         
     def forward(self, x):
         ### Sub-network 1
-        if(len(x.size()) == 5):
-            latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :, :])
-        else:
-            latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :])
+    
+        latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :])
         
         ### Sub-network 2 (baseline)
         with torch.no_grad():
-            if len(x.size()) == 5:
-                b_latent, _ = self.backbone(x[:, :self.num_win, :, :, :])
-            else: 
-                b_latent, _ = self.backbone(x[:, :self.num_win, :, :])
+            b_latent, _ = self.backbone(x[:, :self.num_win, :, :])
             
         ### Concatenate and Regression head
         x_delta = torch.cat((b_latent, latent), 2)

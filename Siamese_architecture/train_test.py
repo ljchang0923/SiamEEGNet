@@ -36,15 +36,14 @@ def train_model(model, train_dl, test_dl, thres, cfg, save_path):
     record = {'train loss': [], 'val loss':[], 'val cc':[]}
     total_loss = 0
     mini = 1e8
-    best_rmse = 0
-    best_cc = 0
     obt_grad = True if cfg['saliency_map'] else False
     grad = grad_accumulator(thres, cfg)
     
-    print("==========Start training+=========")
+    print("==========Start training==========")
     for epoch in range(cfg['epoch']):
         model.train()
         print(f"[{epoch+1}/{cfg['epoch']}]")
+
         with tqdm(train_dl, unit="batch") as tepoch:
             for b, (x_train, y_train) in enumerate(tepoch):
                 
@@ -77,11 +76,9 @@ def train_model(model, train_dl, test_dl, thres, cfg, save_path):
         record["val cc"].append(cc)
 
         print(f"val loss-> {val_loss} rmse -> {rmse} cc -> {cc}")
-        matrice = 0.5* rmse + 0.5*(1-cc)
-        if(matrice < mini and not isnan(cc)):
+        matrice = 1.0* rmse + 0.0*(1-cc)
+        if matrice < mini:
             mini = matrice
-            best_rmse = rmse
-            best_cc = cc
             model_save_path = f'{save_path}{cfg["ts_sub"]}_model.pt'
             torch.save(model.state_dict(), model_save_path)
         
@@ -112,8 +109,8 @@ def val_model(model, test_dl, device):
     return mse, rmse, cc[0,1] 
 
 def test_model(model, test_dl, device):
+    
     model.eval()
-
     with torch.no_grad():
         for x_test, y_test in test_dl:
             x_test, y_test = torch.flatten(x_test, 0, 1).to(device), torch.flatten(y_test, 0, 1).to(device)

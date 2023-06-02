@@ -4,9 +4,8 @@ import matplotlib.pyplot as plt
 import os
 import random
 from scipy import io
-from math import sqrt,isnan
 import json
-from tqdm import tqdm
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -23,7 +22,6 @@ def read_json(filepath):
     fd.close()
     return content 
 
-
 def create_multi_window_input(file_path, num_window=10, EEG_ch=30):
     start_idx = num_window - 1
 
@@ -32,7 +30,7 @@ def create_multi_window_input(file_path, num_window=10, EEG_ch=30):
     elif EEG_ch == 4:
         ch_num = [0, 1, 27, 29] 
     elif EEG_ch == 2:
-        ch_num = [27, 29] 
+        ch_num = [0, 1] 
     elif EEG_ch == 30:
         ch_num = np.arange(0,30)
     else:

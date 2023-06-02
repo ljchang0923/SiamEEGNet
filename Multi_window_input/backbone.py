@@ -225,7 +225,7 @@ class SCCNet(nn.Module):
 
         x = self.Conv_block2(x)
         x = self.square(x)
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         x = x.permute(0,2,1,3)
         x = self.AveragePooling1(x)

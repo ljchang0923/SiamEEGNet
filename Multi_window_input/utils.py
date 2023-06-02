@@ -146,6 +146,7 @@ def create_multi_window_input(file_path, num_window=10, EEG_ch=30):
 
 def plot_result(output, test_truth, time_point, fig_dir, cfg, idx = None):
     
+    plt.clf()
     plt.figure(figsize=(10, 5))
     plt.rc('font', size=12)
     plt.rc('legend', fontsize=10)
