@@ -117,8 +117,8 @@ class EEGNet(nn.Module):
     def __init__(self, EEG_ch=30, **kwargs):
         super(EEGNet, self).__init__()
 
-        self.F1 = 16
-        self.FN = 32
+        self.F1 = 8
+        self.FN = 16
 
         self.activation = nn.ELU()
 
@@ -127,7 +127,7 @@ class EEGNet(nn.Module):
             nn.BatchNorm2d(self.F1)
         )
         self.depthwiseConv = nn.Sequential(
-            nn.Conv2d(in_channels=self.F1, out_channels=self.FN, kernel_size=(EEG_ch, 1), stride=(1,1), groups=16, bias=False),
+            nn.Conv2d(in_channels=self.F1, out_channels=self.FN, kernel_size=(EEG_ch, 1), stride=(1,1), groups=self.F1, bias=False),
             nn.BatchNorm2d(self.FN),
             self.activation,
             nn.AvgPool2d((1,4), stride=(1,4), padding=0),
@@ -149,7 +149,7 @@ class EEGNet(nn.Module):
         x = self.conv_block1(x)
         x = self.depthwiseConv(x)
         x = self.separableConv(x)
-        latent = x.view(-1, 32)
+        latent = x.view(-1, self.FN)
         out = self.regressor(latent)
 
         return x, out
@@ -198,11 +198,11 @@ class SCCNet(nn.Module):
         # temporal and spatial filter
         self.Conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F1, kernel_size=(EEG_ch, 1)),
-            nn.BatchNorm2d(self.F1)
+            # nn.BatchNorm2d(self.F1)
         )
         self.Conv_block2 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F2, kernel_size=(self.F1, self.t1), padding=(0, self.t1//2)),
-            nn.BatchNorm2d(self.F2)
+            # nn.BatchNorm2d(self.F2)
         )
 
         self.AveragePooling1 = nn.AvgPool2d((1, self.t2))
@@ -225,7 +225,7 @@ class SCCNet(nn.Module):
 
         x = self.Conv_block2(x)
         x = self.square(x)
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         # x = x.permute(0,2,1,3)
         x = self.AveragePooling1(x)

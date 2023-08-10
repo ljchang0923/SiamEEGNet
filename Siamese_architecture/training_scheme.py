@@ -10,7 +10,6 @@ from train_test import train_model, test_model
 from models import Siamese_CNN
 from DataLoader import dataloader
 
-
 def train_within_subject(cfg, save_path, *dataset):
 
     sub_list, data, truth, onset_time = dataset
@@ -31,7 +30,7 @@ def train_within_subject(cfg, save_path, *dataset):
                     'alert': thres_alert
                     }
 
-            train_dl = dataloader(train_data, train_truth, tr_session_bound, 'baseline', cfg)
+            train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
             val_dl = dataloader(train_data, train_truth, tr_session_bound, 'test', cfg)
 
             print(f'Training session: {cfg["ts_sub"]}')
@@ -77,81 +76,31 @@ def test_within_subject(cfg, save_path, *dataset):
             test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
 
             print("Testing session: {}".format(cfg["ts_sub"]))
-            pred_set = []
+            pred_pool = []
             for model_path in model_list:
                 if model_path[:5] != cfg["ts_sub"] and model_path[:3] == sub:
                     model = Siamese_CNN(**cfg).to(cfg['device'])
                     model.load_state_dict(torch.load(save_path['model_dir'] + model_path))
-                    pred = test_model(model, test_dl, cfg['device'])
-                    pred_set.append(pred)
+                    _, pred = test_model(model, test_dl, cfg['device'])
+                    pred_pool.append(pred)
 
-            pred_set = torch.cat(pred_set, 1)
-            pred = torch.mean(pred_set, 1)
+            pred_pool = torch.cat(pred_pool, 1)
+            pred = torch.mean(pred_pool, 1)
             output = [tensor.detach().cpu().item() for tensor in pred]
 
-            rmse = sqrt(mean_squared_error((test_truth-test_truth[baseline_idx]).reshape(-1), output))
-            cc = np.corrcoef((test_truth-test_truth[baseline_idx]).reshape(-1), output)
-            print('RMSE: {} CC: {}'.format(rmse, cc[0,1]))
+            true_delta_DI = (test_truth-test_truth[baseline_idx]).reshape(-1)
+            rmse = sqrt(mean_squared_error(true_delta_DI, output))
+            cc = np.corrcoef(true_delta_DI, output)[0, 1]
+            print('RMSE: {} CC: {}'.format(rmse, cc))
             
-            plot_result(output, (test_truth-test_truth[baseline_idx]).reshape(-1), ts_onset_time, save_path['fig_dir'], cfg)
-            record.append([rmse, cc[0,1]])
+            plot_result(output, true_delta_DI, ts_onset_time, save_path['fig_dir'], cfg)
+            record.append([rmse, cc])
 
             # with open(f'decoding_result/{cfg["ts_sub"]}.npy', 'wb') as f:
             #     np.save(f, np.array(output))
 
     return record
 
-def model_fusion(cfg):
-
-    device = cfg["device"]
-    sm_num = cfg["num_smooth"] - 1
-    ch_num = [0, 1, 27, 29]
-    
-    filelist = sorted(os.listdir(args.data_dir))
-    for filename in filelist:
-        if filename.endswith('.mat'):
-            test_data, test_truth, ts_session_bound, onset_time, _ = create_multi_window_input(filename, 0, cfg)
-            cfg['ts_filename'] = filename[:-4]
-        else:
-            continue
-
-        test_data = np.array(test_data, dtype=np.float32)
-        test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
-
-        pred_set = []
-        idx = 0
-        print('testing model')
-        for name in filelist:
-        # for name in filelist:
-            if name.endswith('.mat') and name[:4] != filename[:4]:
-                model = Siamese_SCC(cfg).to(device)
-                model_save_path = f'{cfg["model_dir"]}{cfg["ts_filename"]}_model.pt'
-                model.load_state_dict(torch.load(model_save_path))
-                print(cfg["ts_filename"])
-
-                pred = test_model(model, test_dl, device)
-                pred_set.append(pred[0])
-                # pred_set.append(pred[0]*simi_score[idx])
-                # sum_ += sorted_metrics[name]
-                idx += 1
-                del model
-
-        pred_set = torch.cat(pred_set, 1)
-        pred = torch.mean(pred_set, 1)
-        output = [tensor.detach().cpu().item() for tensor in pred]
-        # pred = torch.div(torch.sum(pred_set, 1), sum_)
-        # output = [tensor.detach().cpu().item() for tensor in pred_set[0]]
-
-        rmse = sqrt(mean_squared_error((test_truth-test_truth[0]).reshape(-1), output))
-        cc = np.corrcoef((test_truth-test_truth[0]).reshape(-1), output)
-
-
-        plot_result(output, (test_truth-test_truth[0]).reshape(-1), onset_time, cfg)
-        with open(cfg["log_file"], 'a') as f:
-            f.writelines('%s\t%.3f\t%.3f\n'%(filename[:-4], rmse, cc[0,1]))
-            # with open("model_selection/" + filename[:-4], 'a') as f:
-            #     f.writelines('%s\t%.3f\t%.3f\t%f\n'%(name[:-4], rmse, cc[0,1], abs(bs_delta)))
-    
 def train_cross_subject(cfg, save_path, *dataset):
 
     sub_list, data, truth, onset_time = dataset
@@ -175,7 +124,7 @@ def train_cross_subject(cfg, save_path, *dataset):
         val_truth = truth[sub_list[val_sub_idx]][0].astype('float32')
         val_session_bound = np.tile([0, val_data.shape[0]-1], (val_data.shape[0], 1))
 
-        # training data
+        # Gathering cross-subject training data
         train_data = []
         train_truth = []
         tr_session_bound = []
@@ -201,14 +150,14 @@ def train_cross_subject(cfg, save_path, *dataset):
                 'alert': thres_alert
         }
 
-        # wrap up to the Dataloader
+        # Wrap up as dataloader
         train_dl = dataloader(train_data, train_truth, tr_session_bound, 'train', cfg)
         val_dl = dataloader(val_data, val_truth, val_session_bound, 'test', cfg)
 
         ''' Model setup and training '''
         model = Siamese_CNN(**cfg).to(cfg['device'])
         print ('Validate on: ', sub_list[val_sub_idx])
-        print('Test on: ', cfg['ts_sub'])
+        print('Test on: ', sub_list[ts_sub_idx])
         print('Start training...')
 
         _, grad_acc = train_model(model, train_dl, val_dl, thres, cfg, save_path['model_dir'])
@@ -217,9 +166,9 @@ def train_cross_subject(cfg, save_path, *dataset):
         alert_grad_dict[cfg['ts_sub']] = grad_acc["alert"]
         drowsy_grad_dict[cfg['ts_sub']] = grad_acc["drowsy"]
 
-        ''' Testing '''
+        ''' Test all sessions of testing subject '''
         for idx in range(len(data[sub_list[ts_sub_idx]])):
-            ### get testing data from testing subject
+            ### Get testing data from testing subject
             test_data = np.array(data[sub_list[ts_sub_idx]][idx], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
             test_truth = truth[sub_list[ts_sub_idx]][idx].astype('float32') # (#testing trial, )
             ts_session_bound = np.tile([0, test_data.shape[0]-1], (test_data.shape[0], 1))
@@ -227,15 +176,16 @@ def train_cross_subject(cfg, save_path, *dataset):
 
             ### Inference
             test_dl = dataloader(test_data, test_truth, ts_session_bound, 'test', cfg)
-            pred = test_model(model, test_dl, cfg['device'])
+            _, pred = test_model(model, test_dl, cfg['device'])
             output = [tensor.detach().cpu().item() for tensor in pred]
             
-            rmse = sqrt(mean_squared_error((test_truth - test_truth[0]).reshape(-1), output))
-            cc = np.corrcoef((test_truth - test_truth[0]).reshape(-1), output)
+            true_delta_DI = (test_truth - test_truth[0]).reshape(-1)
+            rmse = sqrt(mean_squared_error(true_delta_DI, output))
+            cc = np.corrcoef(true_delta_DI, output)[0, 1]
         
-            plot_result(output, (test_truth - test_truth[0]).reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
+            plot_result(output, true_delta_DI, ts_onset_time, save_path['fig_dir'], cfg, idx)
             
-            record.append([rmse, cc[0, 1]])
+            record.append([rmse, cc])
 
         del train_data, train_truth, test_data, test_truth,  val_data, val_truth
         del train_dl, test_dl, val_dl
@@ -252,7 +202,7 @@ def train_cross_subject(cfg, save_path, *dataset):
 
     return record
 
-
+### Inference using the existing models
 def test_cross_subject(cfg, save_path, *dataset):
 
     sub_list, data, truth, onset_time = dataset
@@ -274,10 +224,11 @@ def test_cross_subject(cfg, save_path, *dataset):
             pred = test_model(model, test_dl, cfg['device'])
             output = [tensor.detach().cpu().item() for tensor in pred]
             
-            rmse = sqrt(mean_squared_error((test_truth - test_truth[0]).reshape(-1), output))
-            cc = np.corrcoef((test_truth - test_truth[0]).reshape(-1), output)
+            true_delta_DI = (test_truth - test_truth[0]).reshape(-1)
+            rmse = sqrt(mean_squared_error(true_delta_DI, output))
+            cc = np.corrcoef(true_delta_DI, output)[0, 1]
         
-            plot_result(output, (test_truth - test_truth[0]).reshape(-1), ts_onset_time, save_path['fig_dir'], cfg, idx)
-            record.append([rmse, cc[0,1]])
+            plot_result(output, true_delta_DI, ts_onset_time, save_path['fig_dir'], cfg, idx)
+            record.append([rmse, cc])
 
     return record

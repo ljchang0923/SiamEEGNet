@@ -28,7 +28,8 @@ class grad_accumulator:
 
 """# Training setup"""
 
-def train_model(model, train_dl, test_dl, thres, cfg, save_path):
+def train_model(model, train_dl, val_dl, thres, cfg, save_path):
+    
     optimizer = getattr(optim, cfg['optimizer'])(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
     criterion = nn.MSELoss(reduction='mean')
 
@@ -48,14 +49,19 @@ def train_model(model, train_dl, test_dl, thres, cfg, save_path):
             for b, (x_train, y_train) in enumerate(tepoch):
                 
                 optimizer.zero_grad()
-                    
-                x_train, y_train = torch.flatten(x_train, 0, 1).to(cfg['device']), torch.flatten(y_train, 0,1).to(cfg['device'])
+                
+                ## the dimension of input = 5 means input is pair data
+                ## we merge the multiple pairs into mini-batch
+                ## The ground truth become Delta DI (current DI - baseline DI)
+                if(len(x_train.size()) == 5):
+                    x_train, y_train = torch.flatten(x_train, 0, 1), torch.flatten(y_train, 0,1)
+                    y_train = y_train[:, 0] - y_train[:, 1]
+
+                x_train, y_train = x_train.to(cfg['device']), y_train.to(cfg['device'])
                 x_train.requires_grad = obt_grad
 
-                _, di, delta_di = model(x_train)
-
-                truth = y_train[:, 0] - y_train[:, 1]
-                loss = criterion(delta_di, truth)
+                _, pred = model(x_train)
+                loss = criterion(pred, y_train)
                 total_loss += loss.detach().cpu().item()
 
                 loss.backward(retain_graph=obt_grad)
@@ -70,7 +76,8 @@ def train_model(model, train_dl, test_dl, thres, cfg, save_path):
 
         del x_train, y_train
 
-        val_loss, rmse, cc = val_model(model, test_dl, cfg['device'])
+        ### Validation
+        val_loss, rmse, cc = val_model(model, val_dl, cfg['device'])
         record["train loss"].append(total_loss/len(train_dl.dataset))
         record["val loss"].append(val_loss)
         record["val cc"].append(cc)
@@ -79,7 +86,7 @@ def train_model(model, train_dl, test_dl, thres, cfg, save_path):
         matrice = 1.0* rmse + 0.0*(1-cc)
         if matrice < mini:
             mini = matrice
-            model_save_path = f'{save_path}{cfg["ts_sub"]}_model.pt'
+            model_save_path = f'{save_path}{cfg["ts_sub"]}_model.pt' # Use test subject to name the model
             torch.save(model.state_dict(), model_save_path)
         
         total_loss = 0
@@ -96,26 +103,35 @@ def val_model(model, test_dl, device):
         model.eval()
         for x_test, y_test in test_dl:
 
-            x_test, y_test = torch.flatten(x_test, 0, 1).to(device), torch.flatten(y_test, 0, 1).to(device)
+            if(len(x_test.size()) == 5):
+                x_test, y_test = torch.flatten(x_test, 0, 1), torch.flatten(y_test, 0, 1)
+                y_test = y_test[:,0] - y_test[:,1]
+
+            x_test, y_test = x_test.to(device), y_test.to(device)
+
+            _, pred = model(x_test)
             
-            _, di, delta_di = model(x_test)
-            
-            mse = criterion_mse(delta_di, y_test[:,0]-y_test[:,1])
+            mse = criterion_mse(pred, y_test)
             rmse = sqrt(mse)
-            cc = np.corrcoef((y_test[:,0]-y_test[:,1]).cpu().detach().numpy().reshape(-1), delta_di.cpu().detach().numpy().reshape(-1))
+            cc = np.corrcoef(y_test.cpu().detach().numpy().reshape(-1), pred.cpu().detach().numpy().reshape(-1))[0, 1]
 
         del x_test, y_test
 
-    return mse, rmse, cc[0,1] 
+    return mse, rmse, cc
 
 def test_model(model, test_dl, device):
     
     model.eval()
     with torch.no_grad():
         for x_test, y_test in test_dl:
-            x_test, y_test = torch.flatten(x_test, 0, 1).to(device), torch.flatten(y_test, 0, 1).to(device)
-            b_latent, latent, delta_di = model(x_test)
+            if(len(x_test.size()) == 5):
+                x_test, y_test = torch.flatten(x_test, 0, 1), torch.flatten(y_test, 0, 1)
+                y_test = y_test[:,0] - y_test[:,1]
+            
+            x_test, y_test = x_test.to(device), y_test.to(device)
+
+            latent, delta_di = model(x_test)
 
         del x_test, y_test
 
-    return delta_di
+    return latent[1], delta_di

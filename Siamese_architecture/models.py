@@ -27,7 +27,8 @@ class Multi_window_input(nn.Module):
 
         eegmodel = backbone_selector(kwargs["backbone"])      
         self.feat_extractor = eegmodel(**kwargs)
-        
+        # summary(self.feat_extractor, input_size=(1,30,750), device='cpu')
+        # input('break')
         self.dim_latent = self.feat_extractor.FN
 
         self.GAP = nn.AvgPool2d((1, num_window))
@@ -38,11 +39,7 @@ class Multi_window_input(nn.Module):
     def forward(self, x):
         latent = [] 
         for j in range(0, x.size()[1]):
-            if(len(x.size()) == 5):
-                t, _ = self.feat_extractor(x[:,j,:,:,:].unsqueeze(1))
-            else:
-                t, _ = self.feat_extractor(x[:,j,:,:].unsqueeze(1))
-            
+            t, _ = self.feat_extractor(x[:,j,:,:].unsqueeze(1))
             latent.append(t)
 
         latent = torch.cat(latent, 3)
@@ -61,12 +58,14 @@ class Siamese_CNN(nn.Module):
         super(Siamese_CNN, self).__init__()
 
         self.num_win = num_window
+        # self.dim_inter = 10
         self.backbone = Multi_window_input(num_window, **kwargs)
         self.dim_latent = self.backbone.feat_extractor.FN
         self.GAP = nn.AvgPool2d((1, num_window))
 
-         ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
-        self.delta_regressor = nn.Linear(self.dim_latent * 2, 1, bias = True)
+        ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
+        # self.intermediate = nn.Linear(self.dim_latent*2, self.dim_inter)
+        self.delta_regressor = nn.Linear(self.dim_latent*2, 1, bias = True)
         
         ## Activation
         self.sigmoid = nn.Sigmoid()
@@ -74,24 +73,18 @@ class Siamese_CNN(nn.Module):
         
     def forward(self, x):
         ### Sub-network 1
-        if(len(x.size()) == 5):
-            latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :, :])
-        else:
-            latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :])
+        latent, output_di = self.backbone(x[:, self.num_win:x.size()[1], :, :])
         
-        ### Sub-network 2 (baseline)
+        ### Sub-network 2 (for baseline)
         with torch.no_grad():
-            if len(x.size()) == 5:
-                b_latent, _ = self.backbone(x[:, :self.num_win, :, :, :])
-            else: 
-                b_latent, _ = self.backbone(x[:, :self.num_win, :, :])
+            b_latent, _ = self.backbone(x[:, :self.num_win, :, :])
             
         ### Concatenate and Regression head
         x_delta = torch.cat((b_latent, latent), 2)
-        # x_delta = torch.sub(latent, b_latent)
 
         x_delta = torch.flatten(x_delta, 1)
+        # inter_latent = self.intermediate(x_delta)
         output_delta = self.delta_regressor(x_delta)
         output_delta = self.tanh(output_delta)
 
-        return x_delta, output_di, output_delta
+        return (output_di, x_delta), output_delta

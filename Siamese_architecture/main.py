@@ -1,13 +1,14 @@
 import os
 from pathlib import Path
 import argparse
-from utils import read_json, create_multi_window_input
-from training_scheme import train_within_subject, train_cross_subject
-from training_scheme import test_within_subject, test_cross_subject
 import numpy as np
 import csv
 
-    
+from utils import read_json, create_multi_window_input
+from training_scheme import train_within_subject, train_cross_subject
+from training_scheme import test_within_subject, test_cross_subject
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", type=str, help="train or inference", default="train")
@@ -20,13 +21,13 @@ def main():
     cfg = read_json(args.config_path)
     cfg['device'] = args.device
     cfg['scenario'] = args.scenario
-    cfg['saliency_map'] = False
+    cfg['saliency_map'] = True
 
     save_path = {
         'data_dir':'/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/',
-        'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/ablation/siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_baseline/',
-        'log_file':f'log/ablation/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_baseline.csv',
-        'fig_dir':f'fig/ablation/fig_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch_baseline/'
+        'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/test/siamese{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/',
+        'log_file':f'log/test/siamese_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch.csv',
+        'fig_dir':f'fig/test/fig_{cfg["backbone"]}_{cfg["num_window"]}window_{cfg["pairing"]}pair_{cfg["scenario"]}_{cfg["EEG_ch"]}ch/'
     }
 
     if not os.path.exists(save_path['fig_dir']):
@@ -42,9 +43,16 @@ def main():
 
     # Load all data
     print("Loading data...")
+    '''
+    sub_list: store all subject IDs in the dataset
+    Data: store the Processed EEG data using dict (key: subject ID, value: a list of EEG data)
+    truth: store ground truth delta DI using dict (key: subject ID, value: a list of ground truth)
+    onset time: store the time stamps corresponding to each trial
+    * Use subject ID to access the data in each dict
+    '''
     sub_list = []
     data, truth, onset_time = {}, {}, {}
-
+    
     filelist = sorted(os.listdir(save_path['data_dir']))
     for filename in filelist:
         if not filename.endswith('.mat'):
@@ -63,7 +71,6 @@ def main():
         truth[filename[:3]].append(single_train_truth)
         onset_time[filename[:3]].append(single_onset_time)
 
-
     total_record = []
     if args.mode == "train":
         for i in range(args.repeat):
@@ -73,30 +80,25 @@ def main():
 
             if args.scenario == 'cross_subject':
                 record = train_cross_subject(cfg, save_path, sub_list, data, truth, onset_time)
-                record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
-                total_record.append(record)
-
             elif args.scenario == 'within_subject':
                 train_within_subject(cfg, save_path, sub_list, data, truth, onset_time)
-                record = test_within_subject(cfg, save_path, sub_list, data, truth, onset_time)
-                record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
-                total_record.append(record)
-
+                record = test_within_subject(cfg, save_path, sub_list, data, truth, onset_time) 
             else:
                 raise ValueError('Invalid scenario')
+
+            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+            total_record.append(record)
 
     elif args.mode == "inference":
         if args.scenario == 'within_subject':
             record = test_within_subject(cfg, save_path, sub_list, data, truth, onset_time)
-            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
-            total_record.append(record)
-
         elif args.scenario == 'cross_subject':
             record = test_cross_subject(cfg, save_path, sub_list, data, truth, onset_time)
-            record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
-            total_record.append(record)
         else:
             raise ValueError('Invalid scenario')
+
+        record = np.concatenate((record, np.mean(record, axis=0).reshape(1, 2)), axis=0)
+        total_record.append(record)
 
     else:
         raise ValueError('Invalid mode')
@@ -109,9 +111,6 @@ def main():
             writer.writerow(row)
 
     print(total_record)
-    # np.savetxt(save_path['log_file'], total_record, delimiter='\t', fmt='%.3f')
-
-    
 
 if __name__ == "__main__":
     main()
