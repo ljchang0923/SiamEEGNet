@@ -33,8 +33,8 @@ def main(args):
 
     path = {
         'data_dir':'/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/',
-        'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/test/{args["method"]}{args["backbone"]}_{args["num_window"]}window_{args["pairing"]}pair_cross_subject_{args["EEG_ch"]}ch/',
-        'log_file':f'log/test/{args["method"]}_{args["backbone"]}_{args["num_window"]}window_{args["pairing"]}pair_cross_subject_{args["EEG_ch"]}ch.csv',
+        'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/test/{args["method"]}{args["backbone"]}_{args["num_window"]}window_{args["pairing"]}pair_{args["scenario"]}_{args["EEG_ch"]}ch/',
+        'log_file':f'log/test/{args["method"]}_{args["backbone"]}_{args["num_window"]}window_{args["pairing"]}pair_{args["scenario"]}_{args["EEG_ch"]}ch.csv',
     }
 
     if not os.path.exists(path['model_dir']):
@@ -94,7 +94,7 @@ def main(args):
 
             ### Inference
             if args["scenario"] == 'cross_subject':
-                model_path = sub_list[ts_sub_idx] + '_model.pt'
+                model_path = ts_sub + '_model.pt'
                 model.load_state_dict(torch.load(path['model_dir'] + model_path))
                 model = model.to(args["device"])
                 _, pred = test_model(model, test_dl, args["method"], args["device"])
@@ -102,7 +102,7 @@ def main(args):
             elif args["scenario"] == 'within_subject':
                 pred_pool = []
                 for model_path in model_list:
-                    if model_path[:3] != ts_sub or model_path[:5] == ts_sub+{sess+1}:
+                    if model_path[:3] != ts_sub or model_path[:5] == f"{ts_sub}_{sess+1}":
                         continue
 
                     model.load_state_dict(torch.load(path['model_dir'] + model_path))

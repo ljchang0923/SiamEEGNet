@@ -121,7 +121,7 @@ def main(args):
             model_list = sorted(os.listdir(save_path['model_dir']))
             for sess in range(len(data[sub])):
  
-                ts_sub = f"{sub}-{sess+1}"
+                ts_sub = f"{sub}_{sess+1}"
                 ts_data = np.array(data[sub][sess], dtype=np.float32)
                 ts_truth = truth[sub][sess].astype('float32')
                 tr_session_bound = np.tile([0, ts_data.shape[0] - 1], (ts_data.shape[0], 1))
