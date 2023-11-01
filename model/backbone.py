@@ -36,8 +36,6 @@ class InterpretableCNN(torch.nn.Module):
     N1            : number of nodes in the first pointwise layer.
     d             : number of kernels for each new signal in the second depthwise layer.      
     kernelLength  : length of convolutional kernel in second depthwise layer.
-   
-    if you have any problems with the code, please contact Dr. Cui Jian at cuij0006@ntu.edu.sg
     """    
     
     def __init__(self, classes=1, EEG_ch=30, fs=250 ,N1=16, d=2, kernelLength=125, **kwargs):
@@ -49,7 +47,7 @@ class InterpretableCNN(torch.nn.Module):
         self.batchnorm = torch.nn.BatchNorm2d(d*N1, track_running_stats=True)       
         self.GAP=torch.nn.AvgPool2d((1, sampleLength-kernelLength+1))         
         self.fc = torch.nn.Linear(d*N1, classes) 
-        self.FN = d*N1       
+        self.DL = d*N1       
 
     def forward(self, inputdata):
         intermediate = self.pointwise(inputdata)        
@@ -69,7 +67,7 @@ class ESTCNN(nn.Module):
         self.n_classes = n_classes
         input_time = fs*3
         n_ch1, n_ch2, n_ch3 = 16, 32, 64
-        self.FN = 50
+        self.DL = 50
 
         self.convnet = nn.Sequential(
             nn.Conv2d(1, n_ch1, kernel_size=(1, 3), stride=1, padding="valid"),
@@ -113,12 +111,12 @@ class ESTCNN(nn.Module):
 
         self.n_outputs = out.size()[1] * out.size()[2] * out.size()[3]
 
-        self.spatial_fusion = nn.Sequential(nn.Linear(self.n_outputs, 50),
+        self.spatial_fusion = nn.Sequential(nn.Linear(self.n_outputs, self.DL),
                                             nn.ReLU()
                                             )
 
         """ Classifier """
-        self.clf = nn.Sequential(nn.Linear(50, self.n_classes),
+        self.clf = nn.Sequential(nn.Linear(self.DL, self.n_classes),
                                  nn.Sigmoid()
                                  )
     def forward(self, x):
@@ -135,38 +133,38 @@ class EEGNet(nn.Module):
         super(EEGNet, self).__init__()
 
         self.F1 = 8
-        self.FN = 16
+        self.DL = 16
 
         self.activation = nn.ELU()
 
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=self.F1, kernel_size=(1, 125), stride=(1,1), padding=(0,62), bias=False),
-            nn.BatchNorm2d(self.F1, track_running_stats=False)
+            nn.BatchNorm2d(self.F1, track_running_stats=True)
         )
         self.depthwiseConv = nn.Sequential(
-            nn.Conv2d(in_channels=self.F1, out_channels=self.FN, kernel_size=(EEG_ch, 1), stride=(1,1), groups=self.F1, bias=False),
-            nn.BatchNorm2d(self.FN, track_running_stats=False),
+            nn.Conv2d(in_channels=self.F1, out_channels=self.DL, kernel_size=(EEG_ch, 1), stride=(1,1), groups=self.F1, bias=False),
+            nn.BatchNorm2d(self.DL, track_running_stats=True),
             self.activation,
             nn.AvgPool2d((1,4), stride=(1,4), padding=0),
             nn.Dropout(0.25)
         )
         self.separableConv = nn.Sequential(
-            nn.Conv2d(in_channels=self.FN, out_channels=self.FN, kernel_size=(1, 31), stride=(1,1), padding = (0,15), bias=False),
-            nn.BatchNorm2d(self.FN, track_running_stats=False),
+            nn.Conv2d(in_channels=self.DL, out_channels=self.DL, kernel_size=(1, 31), stride=(1,1), padding = (0,15), bias=False),
+            nn.BatchNorm2d(self.DL, track_running_stats=True),
             self.activation,
             nn.AvgPool2d((1,187), stride=(1,1), padding=0),
             # nn.AvgPool2d((1,8), stride=(1,8), padding=0),
             nn.Dropout(0.25)
         )
 
-        self.regressor = nn.Linear(self.FN, 1, bias=True)
+        self.regressor = nn.Linear(self.DL, 1, bias=True)
 
     def forward(self, x):
 
         x = self.conv_block1(x)
         x = self.depthwiseConv(x)
         x = self.separableConv(x)
-        latent = x.view(-1, self.FN)
+        latent = x.view(-1, self.DL)
         out = self.regressor(latent)
 
         return x, out
@@ -176,16 +174,16 @@ class ShallowConvNet(nn.Module):
         super(ShallowConvNet, self).__init__()
 
         self.F1 = 40
-        self.FN = 40
+        self.DL = 40
 
         self.conv1 = nn.Conv2d(1, self.F1, (1, 25), bias=False)
-        self.conv2 = nn.Conv2d(self.F1, self.FN, (EEG_ch, 1), bias=False)
-        self.Bn1   = nn.BatchNorm2d(self.FN)
+        self.conv2 = nn.Conv2d(self.F1, self.DL, (EEG_ch, 1), bias=False)
+        self.Bn1   = nn.BatchNorm2d(self.DL)
 
         self.AvgPool1 = nn.AvgPool2d((1, 726), stride=(1, 1))
     
         self.Drop1 = nn.Dropout(0.25)
-        self.regressor = nn.Linear(self.FN, 1, bias=True)
+        self.regressor = nn.Linear(self.DL, 1, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -208,7 +206,7 @@ class SCCNet(nn.Module):
         # structure parameters
         self.F1 = 22
         self.F2 = 20
-        self.FN = 20
+        self.DL = 20
         self.t1 = fs // 10
         self.t2 = fs * 3
 
@@ -227,7 +225,7 @@ class SCCNet(nn.Module):
         # stride is set as 25 (0.1 sec correspond to time domain)
         # kernel size 125 mean 0.5 sec
         self.dropout = nn.Dropout(0.5)
-        self.regressor = nn.Linear(self.FN, 1, bias=True)
+        self.regressor = nn.Linear(self.DL, 1, bias=True)
         self.sigmoid = nn.Sigmoid()
 
     def square(self, x): 
@@ -387,21 +385,21 @@ class EEGTCNet(nn.Module):
         super().__init__()
         self.F1 = 8   # number of temporal filters
         self.F2 = 16  # number of pointwise filters
-        self.FN = 12  # number of convolution filters in TCN block
+        self.DL = 12  # number of convolution filters in TCN block
         self.D = 2    # depth multiplier
         
         # block1
         self.block1 = EEGBlock4EEGTCN(EEG_ch, pe=0.3) 
         modules = []
         for i in range(self.D):
-            F2 = self.F2 if i == 0 else self.FN
+            F2 = self.F2 if i == 0 else self.DL
             modules.append(TCNBlock(F2=F2, dilate_rate=2**i, pt=0.3))
         
         self.block2 = nn.Sequential(*modules)
         self.AvgPooling = nn.AvgPool2d((1, 23))
         self.flat = nn.Flatten()
         # block3
-        self.classifier = nn.Linear(self.FN, 1, bias=True)
+        self.classifier = nn.Linear(self.DL, 1, bias=True)
 
     def forward(self, x):
         x = self.block1(x)
@@ -479,7 +477,7 @@ class MBEEGSE(nn.Module):
     def __init__(self, EEG_ch=30, fs=250, **kwargs):
         super(MBEEGSE, self).__init__()
 
-        self.FN = 12
+        self.DL = 12
 
         self.b1_F1 = 4  # Number of temporal filters
         self.b1_F2 = 16

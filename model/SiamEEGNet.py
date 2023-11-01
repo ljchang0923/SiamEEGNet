@@ -12,7 +12,7 @@ class Multi_window_CNN(nn.Module):
         self.feat_extractor = eegmodel(EEG_ch=EEG_ch, fs=fs)
         # summary(self.feat_extractor, input_size=(1,30,750), device='cpu')
         # input('break')
-        self.dim_latent = self.feat_extractor.FN
+        self.dim_latent = self.feat_extractor.DL
 
         self.GAP = nn.AvgPool2d((1, num_window))
         self.regressor = nn.Linear(self.dim_latent, 1, bias = True)
@@ -45,7 +45,7 @@ class SiamEEGNet(nn.Module):
         self.num_win = num_window
         # self.dim_inter = 10
         self.backbone = Multi_window_CNN(EEG_ch=EEG_ch, fs=fs, num_window=num_window, backbone=backbone)
-        self.dim_latent = self.backbone.feat_extractor.FN
+        self.dim_latent = self.backbone.feat_extractor.DL
         self.GAP = nn.AvgPool2d((1, num_window))
 
         ## SCCNet: 20 EEGNet: 32 shallowConvNet: 40
@@ -69,7 +69,7 @@ class SiamEEGNet(nn.Module):
         concat_latent = torch.cat((b_intermediate_latent["smoothed"], intermediate_latent["smoothed"]), 2)
         concat_latent = torch.flatten(concat_latent, 1)
         intermediate_latent['concat'] = concat_latent
-        # inter_latent = self.intermediate(x_delta)
+
         delta_DI = self.delta_regressor(concat_latent)
         delta_DI = self.tanh(delta_DI)
 
