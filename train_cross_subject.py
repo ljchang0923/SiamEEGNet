@@ -38,6 +38,7 @@ def get_arg_parser():
 
 def main(args):
 
+    # change to the path you would like to use #
     save_path = {
         'data_dir':'/home/cecnl/ljchang/CECNL/sustained-attention/selected_data/',
         'model_dir':f'/home/cecnl/ljchang/CECNL/sustained-attention/model/test/{args["method"]}{args["backbone"]}_{args["num_window"]}window_{args["pairing"]}pair_cross_subject_{args["EEG_ch"]}ch/',
@@ -77,9 +78,10 @@ def main(args):
             
             ts_sub = sub_list[ts_sub_idx]
 
+            # Obtain train and val data loader based on given testing subject ID #
             train_dl, val_dl = get_dataloader_4_cross_sub(sub_list, data, truth, ts_sub_idx, args)
 
-            ''' Model setup and training '''
+            # Model setup and training #
             if args["method"] == 'siamese':
                 model = SiamEEGNet(
                 EEG_ch=args["EEG_ch"],
@@ -109,16 +111,16 @@ def main(args):
 
             all_grad_dict[ts_sub] = grad_acc["all"]
 
-            '''Test all sessions of testing subject'''
+            # Test all sessions of testing subject #
             for sess in range(len(data[ts_sub])):
 
-                ### Get testing data from testing subject
+                # Get testing data from testing subject #
                 ts_data = np.array(data[ts_sub][sess], dtype=np.float32) # (#testing trial, #window, #channel, #timepoint)
                 ts_truth = truth[ts_sub][sess].astype('float32') # (#testing trial, )
-                ts_session_bound = np.tile([0, ts_data.shape[0]-1], (ts_data.shape[0], 1)) 
-                test_dl = get_dataloader(ts_data, ts_truth, ts_session_bound, 'test', **args)
+                ts_session_bound = np.tile([0, ts_data.shape[0] - 1], (ts_data.shape[0], 1)) 
+                test_dl = get_dataloader(ts_data, ts_truth, ts_session_bound, 'test', 'static', **args)
 
-                ### Inference
+                # Inference #
                 _, pred = test_model(model, test_dl, args["method"], args["device"])
                 output = [tensor.detach().cpu().item() for tensor in pred]
                 
