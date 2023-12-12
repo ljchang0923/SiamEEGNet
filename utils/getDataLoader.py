@@ -55,7 +55,7 @@ def get_dataloader(data, truth, sess_bound=None, mode = 'train', pairing_mode='d
 
     # Form dataset based on the method (Siamese->pair; Others->normal)
     if method == 'siamese':
-        dataset = pair_Dataset(data, truth, sess_bound, pairing_mode, pairing)
+        dataset = pair_dataset(data, truth, sess_bound, pairing_mode, pairing)
     else:
         dataset = normal_dataset(data, truth)
     
@@ -80,7 +80,7 @@ def get_dataloader(data, truth, sess_bound=None, mode = 'train', pairing_mode='d
     
     return dl
 
-class pair_Dataset(Dataset):
+class pair_dataset(Dataset):
     def __init__(self, data, truth, session, mode, pairing=1):
         self.data = data
         self.truth = truth
